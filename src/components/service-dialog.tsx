@@ -300,7 +300,7 @@ export function ServiceDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-xl">
+      <DialogContent className="max-w-xl" data-testid="service-dialog">
         <DialogHeader>
           <DialogTitle>{mode === "add" ? t("service.addTitle") : t("service.editTitle")}</DialogTitle>
           <DialogDescription>{t("service.commandHint")}</DialogDescription>

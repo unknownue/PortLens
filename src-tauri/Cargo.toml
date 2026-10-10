@@ -1,6 +1,6 @@
 [package]
 name = "portlens"
-version = "0.4.0"
+version = "0.4.1"
 description = "PortLens — 端口服务监听 / 健康检查 / 启停 / 应用内多标签页面浏览"
 authors = ["you"]
 edition = "2021"

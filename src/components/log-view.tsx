@@ -219,7 +219,7 @@ export function LogView({ service }: LogViewProps) {
       <div
         ref={boxRef}
         onScroll={onScroll}
-        className="min-h-0 flex-1 overflow-auto bg-[#0d1117] px-3 py-2 font-mono text-[11.5px] leading-5 text-foreground"
+        className="min-h-0 flex-1 overflow-auto bg-muted/20 px-3 py-2 font-mono text-[11.5px] leading-5 text-foreground"
       >
         {visible.length === 0 ? (
           <p className="text-muted-foreground" data-testid="log-tab-empty">
@@ -232,8 +232,8 @@ export function LogView({ service }: LogViewProps) {
                 key={`${index}-${line.slice(0, 24)}`}
                 className={cn(
                   "whitespace-pre-wrap break-all",
-                  noisyLine(line) && "text-rose-400",
-                  warnLine(line) && "text-amber-400",
+                  noisyLine(line) && "text-rose-600 dark:text-rose-400",
+                  warnLine(line) && "text-amber-700 dark:text-amber-400",
                 )}
               >
                 {line}

@@ -90,8 +90,16 @@
     height: 100%;
   }
   body {
-    @apply bg-background text-foreground overflow-hidden;
+    @apply overflow-hidden;
     font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
     font-size: 13px;
   }
+}
+
+/* Unlayered on purpose: index.html carries a dark first-paint background, and unlayered styles win
+   over anything inside @layer base — so the theme has to be applied outside the layer, otherwise the
+   light theme would keep rendering on the dark fallback colour. */
+body {
+  background: var(--background);
+  color: var(--foreground);
 }

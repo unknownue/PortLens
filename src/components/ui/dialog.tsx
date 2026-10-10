@@ -37,6 +37,9 @@ function DialogContent({
         data-slot="dialog-content"
         className={cn(
           "fixed left-1/2 top-1/2 z-50 grid w-full max-w-lg -translate-x-1/2 -translate-y-1/2 gap-3 rounded-lg border border-border bg-card p-4 shadow-lg",
+          // Never taller/wider than the window: long forms (service dialog) scroll inside the
+          // dialog instead of spilling past the app frame on small displays.
+          "max-h-[calc(100vh-2rem)] max-w-[calc(100vw-2rem)] overflow-y-auto overscroll-contain",
           "duration-150 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
           className,
         )}
