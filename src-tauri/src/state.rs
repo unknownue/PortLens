@@ -10,7 +10,7 @@ use tauri::{AppHandle, Emitter, State};
 use crate::config::{self, HealthConfig, LogSource, Manifest, ServiceDef, Settings};
 use crate::health::{HealthMachine, ServiceStatus, State as ServiceState, Tick};
 use crate::logs::LogStore;
-use crate::pages::{self, PageTab, PageTarget, UiState, WindowRect};
+use crate::pages::{self, LogTab, PageTab, PageTarget, UiState, WindowRect};
 use crate::supervise::ServiceManager;
 use crate::tail::TailRegistry;
 use crate::{netsh, ports, probe, proc, secrets};
@@ -647,6 +647,29 @@ pub fn take_saved_pages(state: State<'_, Arc<AppState>>) -> Vec<PageTab> {
     ui.active = None;
     pages::save_ui(&ui);
     tabs
+}
+
+/// 日志标签列表（日志视图是纯前端的，这里只存标签身份；读后**不清空**）。
+#[tauri::command]
+pub fn list_log_tabs(state: State<'_, Arc<AppState>>) -> Vec<LogTab> {
+    state.ui.lock().log_tabs.clone()
+}
+
+/// 前端在新建/关闭/改名日志标签后回写。
+#[tauri::command]
+pub fn save_log_tabs(state: State<'_, Arc<AppState>>, tabs: Vec<LogTab>) -> Result<(), String> {
+    let mut ui = state.ui.lock();
+    ui.log_tabs = tabs
+        .into_iter()
+        .map(|tab| LogTab {
+            id: tab.id.trim().to_string(),
+            service_id: tab.service_id.trim().to_string(),
+            title: tab.title.trim().to_string(),
+        })
+        .filter(|tab| !tab.id.is_empty() && !tab.service_id.is_empty())
+        .collect();
+    pages::save_ui(&ui);
+    Ok(())
 }
 
 #[tauri::command]

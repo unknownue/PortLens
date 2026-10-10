@@ -6,6 +6,7 @@ import { Toaster, toast } from "sonner";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { Dashboard } from "@/components/dashboard";
 import { DetailDrawer, type LogSink } from "@/components/detail-drawer";
+import { LogView } from "@/components/log-view";
 import { NewTabDialog } from "@/components/new-tab-dialog";
 import { PageBar } from "@/components/page-bar";
 import { ServiceDialog } from "@/components/service-dialog";
@@ -17,6 +18,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { serviceUrl, titleFromUrl } from "@/format";
 import { translate } from "@/i18n";
 import { api, errorText, mergeStatuses, rectOf } from "@/lib/api";
+import { logTabForService, logTabTitle, nextLogTabId } from "@/logtab";
 import { I18nProvider, type TranslateFn } from "@/lib/i18n-react";
 import { setWindowTheme } from "@/lib/shell";
 import {
@@ -32,6 +34,7 @@ import {
   type LogPayload,
   type Notice,
   type PageLoadPayload,
+  type LogTab,
   type PageTab,
   type ServiceDef,
   type ServiceStatus,
@@ -42,6 +45,7 @@ import {
 
 /** localStorage key remembering which page tab was active across restarts. */
 const REMEMBERED_ACTIVE_KEY = "portlens.lastActiveUrl";
+const REMEMBERED_LOG_KEY = "portlens.lastLogTab";
 
 /** Stable identity so the edit dialog's hydration effect does not re-run every render. */
 const NO_MASKED_HEADERS: string[] = [];
@@ -55,6 +59,10 @@ export default function App() {
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [tabs, setTabs] = useState<PageTab[]>([]);
   const [activeLabel, setActiveLabel] = useState<string | null>(null);
+  const [logTabs, setLogTabs] = useState<LogTab[]>([]);
+  const [activeLog, setActiveLog] = useState<string | null>(null);
+  /** Guards the persist effect until the saved log tabs have been restored. */
+  const logTabsReady = useRef(false);
   const [loading, setLoading] = useState<Record<string, boolean>>({});
   const [detailId, setDetailId] = useState<string | null>(null);
   const [serviceDialog, setServiceDialog] = useState<ServiceDialogState | null>(null);
@@ -75,6 +83,8 @@ export default function App() {
   const logSinkRef = useRef<LogSink | null>(null);
 
   const activeTab = tabs.find((tab) => tab.label === activeLabel) ?? null;
+  const activeLogTab = logTabs.find((tab) => tab.id === activeLog) ?? null;
+  const activeLogService = activeLogTab ? services.find((view) => view.id === activeLogTab.serviceId) ?? null : null;
   const activeTabRef = useRef<PageTab | null>(null);
   const service = services.find((item) => item.id === detailId) ?? null;
   const startable = services.filter((item) => Boolean(item.command && item.command.trim())).length;
@@ -203,18 +213,27 @@ export default function App() {
 
     void (async () => {
       try {
-        const [views, listenerViews, loadedSettings, environment, saved] = await Promise.all([
+        const [views, listenerViews, loadedSettings, environment, saved, savedLogTabs] = await Promise.all([
           api.getServices(),
           api.listListeners(),
           api.getSettings(),
           api.getEnvironment(),
           api.takeSavedPages(),
+          api.listLogTabs(),
         ]);
         if (disposed) return;
         setServices(views);
         setListeners(listenerViews);
         setSettings(loadedSettings);
         setEnv(environment);
+        setLogTabs(savedLogTabs);
+        logTabsReady.current = true;
+        try {
+          const rememberedLog = window.localStorage.getItem(REMEMBERED_LOG_KEY);
+          if (rememberedLog && savedLogTabs.some((tab) => tab.id === rememberedLog)) setActiveLog(rememberedLog);
+        } catch {
+          // Storage unavailable: no log tab is restored as active.
+        }
         await restorePages(saved);
       } catch (error) {
         toast.error(tRef.current("toast.failed", { message: errorText(error) }));
@@ -325,6 +344,20 @@ export default function App() {
       // Storage unavailable; restore falls back to the dashboard.
     }
   }, [activeTab]);
+
+  useEffect(() => {
+    if (!logTabsReady.current) return;
+    void api.saveLogTabs(logTabs).catch(() => undefined);
+  }, [logTabs]);
+
+  useEffect(() => {
+    try {
+      if (activeLog) window.localStorage.setItem(REMEMBERED_LOG_KEY, activeLog);
+      else window.localStorage.removeItem(REMEMBERED_LOG_KEY);
+    } catch {
+      // Storage unavailable; the tab still works for this session.
+    }
+  }, [activeLog]);
 
   const fail = (error: unknown) => toast.error(tRef.current("toast.failed", { message: errorText(error) }));
 
@@ -497,7 +530,48 @@ export default function App() {
     setDetailId(null);
     setSettingsOpen(false);
     setNewTabOpen(false);
+    setActiveLog(null);
     setActiveLabel(label);
+  };
+
+  /** Focuses the log tab of a service, creating one when needed. */
+  const openLogTab = (serviceId: string) => {
+    setDetailId(null);
+    setSettingsOpen(false);
+    setNewTabOpen(false);
+    const existing = logTabForService(logTabs, serviceId);
+    if (existing) {
+      setActiveLabel(null);
+      setActiveLog(existing.id);
+      return;
+    }
+    const service = services.find((view) => view.id === serviceId);
+    const tab: LogTab = {
+      id: nextLogTabId(logTabs),
+      serviceId,
+      title: logTabTitle(service?.name ?? serviceId, tRef.current("logtab.suffix")),
+    };
+    setLogTabs((prev) => [...prev, tab]);
+    setActiveLabel(null);
+    setActiveLog(tab.id);
+  };
+
+  /** Focuses an existing log tab by id (the tab strip already knows which one). */
+  const focusLogTab = (id: string) => {
+    setDetailId(null);
+    setSettingsOpen(false);
+    setNewTabOpen(false);
+    setActiveLabel(null);
+    setActiveLog(id);
+  };
+
+  const closeLogTab = (id: string) => {
+    setLogTabs((prev) => prev.filter((tab) => tab.id !== id));
+    setActiveLog((prev) => (prev === id ? null : prev));
+  };
+
+  const renameLogTab = (id: string, title: string) => {
+    setLogTabs((prev) => prev.map((tab) => (tab.id === id ? { ...tab, title } : tab)));
   };
 
   const defaultNewTabUrl = services.length > 0 ? serviceUrl(services[0].port) : "";
@@ -530,6 +604,11 @@ export default function App() {
             tabs={tabs}
             active={activeLabel}
             loading={loading}
+            logTabs={logTabs}
+            activeLog={activeLog}
+            onSelectLog={focusLogTab}
+            onCloseLog={closeLogTab}
+            onRenameLog={renameLogTab}
             onSelect={selectTab}
             onClose={(label) => void closePage(label)}
             onRename={(label, title) => void renamePage(label, title)}
@@ -552,6 +631,8 @@ export default function App() {
               <div className="absolute inset-0 flex items-center justify-center text-xs text-muted-foreground">
                 {t("common.loading")}
               </div>
+            ) : activeLogTab ? (
+              <LogView service={activeLogService} />
             ) : (
               <div className="absolute inset-0 flex flex-col">
                 <Dashboard
@@ -562,6 +643,7 @@ export default function App() {
                   onRestart={(view) => void restartService(view)}
                   onProbe={(view) => void probeService(view)}
                   onOpenPage={(view) => void createServicePage(view.id)}
+                  onOpenLogs={(view) => openLogTab(view.id)}
                   onEdit={(view) =>
                     setServiceDialog({
                       mode: "edit",
@@ -623,6 +705,7 @@ export default function App() {
           onOpenChange={(open) => {
             if (!open) setDetailId(null);
           }}
+          onOpenLogTab={openLogTab}
           registerLogSink={registerLogSink}
           onClearLogs={async (id) => {
             try {

@@ -11,6 +11,7 @@ type DashboardProps = {
   onRestart: (view: ServiceView) => void;
   onProbe: (view: ServiceView) => void;
   onOpenPage: (view: ServiceView) => void;
+  onOpenLogs: (view: ServiceView) => void;
   onEdit: (view: ServiceView) => void;
   onDelete: (view: ServiceView) => void;
   onDetails: (view: ServiceView) => void;
@@ -25,6 +26,7 @@ export function Dashboard({
   onRestart,
   onProbe,
   onOpenPage,
+  onOpenLogs,
   onEdit,
   onDelete,
   onDetails,
@@ -46,6 +48,7 @@ export function Dashboard({
           onRestart={onRestart}
           onProbe={onProbe}
           onOpenPage={onOpenPage}
+          onOpenLogs={onOpenLogs}
           onEdit={onEdit}
           onDelete={onDelete}
           onDetails={onDetails}

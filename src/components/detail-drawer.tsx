@@ -6,7 +6,6 @@ import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogClose, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatClock, formatDateTime, formatLatency, formatUptime } from "@/format";
 import { api, errorText } from "@/lib/api";
@@ -29,6 +28,8 @@ type DetailDrawerProps = {
   onOpenChange: (open: boolean) => void;
   registerLogSink: (sink: LogSink | null) => void;
   onClearLogs: (id: string) => Promise<void>;
+  /** Opens (or focuses) the log tab bound to this service. */
+  onOpenLogTab: (id: string) => void;
 };
 
 export function DetailDrawer({
@@ -37,14 +38,13 @@ export function DetailDrawer({
   onOpenChange,
   registerLogSink,
   onClearLogs,
+  onOpenLogTab,
 }: DetailDrawerProps) {
   const t = useT();
   const id = service?.id ?? null;
   const [lines, setLines] = useState<string[]>([]);
-  const [follow, setFollow] = useState(true);
   // Plaintext of the headers the user explicitly revealed; never logged, never persisted.
   const [revealed, setRevealed] = useState<Record<string, string>>({});
-  const scrollRef = useRef<HTMLDivElement | null>(null);
   // Bumped whenever the drawer closes or switches service: a reveal that resolves later
   // must not put the plaintext back on screen (or into state).
   const revealSeq = useRef(0);
@@ -141,12 +141,6 @@ export function DetailDrawer({
     registerLogSink(sink);
     return () => registerLogSink(null);
   }, [open, id, registerLogSink]);
-
-  useEffect(() => {
-    if (!follow) return;
-    const element = scrollRef.current;
-    if (element) element.scrollTop = element.scrollHeight;
-  }, [lines, follow]);
 
   const clear = async () => {
     if (!id) return;
@@ -262,10 +256,6 @@ export function DetailDrawer({
                   ) : null}
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
-                  <div className="flex items-center gap-2">
-                    <Switch id="drawer-follow" checked={follow} onCheckedChange={setFollow} />
-                    <Label htmlFor="drawer-follow">{t("action.follow")}</Label>
-                  </div>
                   <span className="flex-1 text-right font-mono text-[11px] text-muted-foreground">
                     {lines.length}
                   </span>
@@ -274,19 +264,19 @@ export function DetailDrawer({
                     {t("drawer.clearLogs")}
                   </Button>
                 </div>
-                <div
-                  ref={scrollRef}
-                  className="min-h-0 flex-1 overflow-auto rounded-md border border-border bg-muted/30 p-2 font-mono text-[11px] leading-relaxed"
-                >
-                  {lines.length === 0 ? (
-                    <p className="text-muted-foreground">{t("drawer.logsEmpty")}</p>
-                  ) : (
-                    lines.map((line, index) => (
-                      <div key={index} className="whitespace-pre-wrap break-all">
-                        {line}
-                      </div>
-                    ))
-                  )}
+                <div className="flex min-h-0 flex-1 flex-col items-start justify-center gap-3 rounded-md border border-dashed border-border p-4 text-[12px]">
+                  <p className="text-muted-foreground">{t("logtab.movedHint")}</p>
+                  <Button data-testid="drawer-open-log-tab" onClick={() => service && onOpenLogTab(service.id)}>
+                    <ScrollText />
+                    {t("logtab.open")}
+                  </Button>
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-[11px] text-muted-foreground">{t("logtab.buffered", { count: lines.length })}</span>
+                    <Button size="sm" variant="outline" onClick={() => void clear()}>
+                      <Eraser />
+                      {t("drawer.clearLogs")}
+                    </Button>
+                  </div>
                 </div>
               </TabsContent>
 

@@ -159,6 +159,9 @@ export type EnvView = {
 
 export type PageTab = { label: string; title: string; url: string };
 
+/** Log tab: identity only (never log content). Bound to one service. */
+export type LogTab = { id: string; serviceId: string; title: string };
+
 export type Rect = { x: number; y: number; w: number; h: number };
 
 export type NoticeLevel = "info" | "warn" | "error";

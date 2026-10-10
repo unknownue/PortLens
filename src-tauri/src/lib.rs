@@ -73,6 +73,8 @@ pub fn run() {
             state::import_preset,
             state::list_pages,
             state::take_saved_pages,
+            state::list_log_tabs,
+            state::save_log_tabs,
             state::open_page,
             state::open_service_page,
             state::get_page_config,

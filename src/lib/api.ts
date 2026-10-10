@@ -7,6 +7,7 @@ import type {
   EnvView,
   ListenerView,
   NoticeLevel,
+  LogTab,
   PageConfigPlain,
   PageTab,
   Rect,
@@ -36,6 +37,9 @@ export const api = {
   importPreset: () => invoke<ServiceView[]>("import_preset"),
   listPages: () => invoke<PageTab[]>("list_pages"),
   takeSavedPages: () => invoke<PageTab[]>("take_saved_pages"),
+  /** Log tab identities; unlike `take_saved_pages` this does not clear them. */
+  listLogTabs: () => invoke<LogTab[]>("list_log_tabs"),
+  saveLogTabs: (tabs: LogTab[]) => invoke<void>("save_log_tabs", { tabs }),
   openPage: (url: string, title: string, rect: Rect) =>
     invoke<PageTab>("open_page", { url, title, ...rect }),
   /** Opens the service's configured page and injects its `page.headers`. */

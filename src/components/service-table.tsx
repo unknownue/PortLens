@@ -7,6 +7,7 @@ import {
   Radar,
   RotateCw,
   MonitorPlay,
+  ScrollText,
   Trash,
 } from "lucide-react";
 import type { ReactNode } from "react";
@@ -34,6 +35,7 @@ type ServiceTableProps = {
   onRestart: (view: ServiceView) => void;
   onProbe: (view: ServiceView) => void;
   onOpenPage: (view: ServiceView) => void;
+  onOpenLogs: (view: ServiceView) => void;
   onEdit: (view: ServiceView) => void;
   onDelete: (view: ServiceView) => void;
   onDetails: (view: ServiceView) => void;
@@ -56,6 +58,7 @@ export function ServiceTable({
   onRestart,
   onProbe,
   onOpenPage,
+  onOpenLogs,
   onEdit,
   onDelete,
   onDetails,
@@ -181,6 +184,9 @@ export function ServiceTable({
                   <ActionButton label={t("action.probe")} onClick={() => onProbe(view)}>
                     <Radar />
                   </ActionButton>
+                  <ActionButton label={t("logtab.open")} onClick={() => onOpenLogs(view)} testId="service-row-logs">
+                    <ScrollText />
+                  </ActionButton>
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <Button size="icon-sm" variant="ghost" title={t("table.actions")}>
@@ -224,17 +230,26 @@ function ActionButton({
   disabled,
   onClick,
   children,
+  testId,
 }: {
   label: string;
   disabled?: boolean;
   onClick: () => void;
   children: ReactNode;
+  testId?: string;
 }) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
         <span>
-          <Button size="icon-sm" variant="ghost" disabled={disabled} aria-label={label} onClick={onClick}>
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            disabled={disabled}
+            aria-label={label}
+            onClick={onClick}
+            data-testid={testId}
+          >
             {children}
           </Button>
         </span>

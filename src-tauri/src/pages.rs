@@ -25,10 +25,22 @@ pub struct WindowRect {
     pub h: u32,
 }
 
+/// 日志标签：绑定一个服务，内容是实时日志视图（纯前端渲染，不建子 WebView）。
+/// 只持久化 id / serviceId / title —— 日志内容永远不落盘。
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct LogTab {
+    pub id: String,
+    pub service_id: String,
+    pub title: String,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 pub struct UiState {
     #[serde(default)]
     pub tabs: Vec<PageTab>,
+    #[serde(default, rename = "logTabs")]
+    pub log_tabs: Vec<LogTab>,
     #[serde(default)]
     pub active: Option<String>,
     #[serde(default)]
@@ -173,5 +185,25 @@ mod tests {
         let state: UiState = serde_json::from_str("{}").unwrap();
         assert!(state.tabs.is_empty());
         assert!(state.active.is_none());
+        assert!(state.log_tabs.is_empty());
+    }
+
+    #[test]
+    fn ui_state_round_trips_log_tabs() {
+        let state = UiState {
+            tabs: vec![PageTab { label: "page-1".into(), title: "t".into(), url: "http://127.0.0.1:1/".into() }],
+            log_tabs: vec![LogTab { id: "log-1".into(), service_id: "svc".into(), title: "svc · 日志".into() }],
+            active: Some("log-1".into()),
+            window: None,
+        };
+        let text = serde_json::to_string(&state).unwrap();
+        assert!(text.contains("\"logTabs\""), "{text}");
+        assert!(text.contains("\"serviceId\":\"svc\""), "{text}");
+        let back: UiState = serde_json::from_str(&text).unwrap();
+        assert_eq!(back.log_tabs, state.log_tabs);
+
+        // 旧 ui.json（没有 logTabs）照样能读
+        let legacy: UiState = serde_json::from_str(r#"{"tabs":[],"active":null,"window":null}"#).unwrap();
+        assert!(legacy.log_tabs.is_empty());
     }
 }

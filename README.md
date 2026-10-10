@@ -11,6 +11,7 @@ Tauri 2（Rust 后端 + WebView2 前端）+ React 19 + shadcn/ui（Tailwind v4�
 - **启停**：每个服务可配「名称 + 端口 + 启动命令 + 工作目录」，一键 启动 / 停止 / 重启；停止按进程树处理（先 `taskkill /T`，超时再 `/F`）。
 - **外部占用**：不是本工具拉起的监听端口也一并列出，二次确认后可停止（可选强制结束进程树）。
 - **外部服务的日志**：Windows 没有事后接管别人 stdout 的 API，所以外部服务用**日志文件跟踪** —— 清单里给服务配 `logSource: { type: "file", path: "logs\\app-*.log", encoding: "gbk" }`，PortLens 增量跟随该文件（含通配最新的轮转日志、截断重置、UTF-8/GBK/UTF-16 等编码），行走进同一个日志面板与事件流。详见 [docs/manifest.md](docs/manifest.md#日志来源外部服务为什么需要它)。
+- **日志标签**：服务的日志（进程输出或 `logSource` 文件跟踪）在**独立标签**里看 —— 实时跟随、暂停/继续、关键词或正则过滤（命中/总数）、清空、复制可见行、错误/告警行高亮；标签条上可以同时开多个服务的日志标签，重启后自动恢复（`ui.json` 只存标签身份，不存日志内容）。
 - **页面请求头注入**：需要 token 的本地服务（例：`stzbmcp` 宿主服务要 `X-STZBMCP-Token`）也能在标签里正常打开 —— 配 `page.url` + `page.headers`，PortLens 对目标 origin 注入请求头（顶层文档、同源子资源、fetch/XHR、刷新全覆盖；跨 origin 一个头都不带）。凭据可写成 `${env:NAME}` / `${file:PATH:KEY}`，清单不落明文，界面只显示 `••••••`；目标返回 401/403 时标签上给可点提示。机制见 [docs/pages.md](docs/pages.md#请求头注入鉴权服务)。
 - **应用内多标签页面浏览**：每个标签一个真实子 WebView（不是 iframe），可开多个服务页面、切标签、改地址、刷新、关闭；标签与窗口尺寸会记住。
 - **端口风险告警**：端口落在 Windows 动态端口段或 winnat/Hyper-V 排除段时给出徽标（这类端口可能被抢占，`listen` 报 EACCES）。

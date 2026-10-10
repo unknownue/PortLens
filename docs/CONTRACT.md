@@ -295,5 +295,53 @@ type ServiceView = ServiceDef & { status: ServiceStatus; risky: boolean; page: P
 - **恢复标签**：`ui.json` 只有 URL，`open_page(url)` 会按 `page.url` 匹配服务并**现取**请求头；匹配不上就只装拦截器（仍能报 401/403）。
 - header 值支持 `${env:NAME}` 与 `${file:PATH:KEY}`（`secrets.rs`）；解析失败时 `open_service_page` 直接报错，恢复标签则降级为不注入并留一行日志。
 
+## 10. 日志标签（v0.4 新增）
+
+日志从「详情抽屉里的一小块」升级为**独立的标签**：标签条上除了仪表盘与页面标签，还可以有日志标签；
+一个日志标签绑定一个服务，内容是实时跟随的日志视图（纯前端渲染，不建子 WebView）。
+
+```ts
+type LogTab = { id: string; serviceId: string; title: string };   // id 由前端生成（如 "log-1"）
+```
+
+`ui.json` 扩展一个数组（仍然**不存日志内容**）：
+
+```json
+{ "tabs": [ ...page tabs... ], "logTabs": [ { "id": "log-1", "serviceId": "stzbmcp-host-15901", "title": "stzbmcp 宿主服务 · 日志" } ],
+  "active": "page-1", "window": { ... } }
+```
+
+命令：
+
+| 命令 | 参数 | 返回 | 说明 |
+|---|---|---|---|
+| `list_log_tabs` | – | `LogTab[]` | 启动时恢复日志标签用（**不清空**，与 `take_saved_pages` 不同） |
+| `save_log_tabs` | `{ tabs: LogTab[] }` | – | 前端在增删/改名后调用 |
+
+标签模型（前端）：
+
+- 标签条上有三类标签：仪表盘（固定）、页面标签（子 WebView）、日志标签（HTML 视图）。
+- **激活日志标签与仪表盘时必须调 `activate_page(null)`**，否则子 WebView 会盖在日志视图上（原生子窗口永远在 HTML 之上）。
+- 日志数据仍走既有通道：`get_service_logs(id, limit)` 取快照 + `service-log` 事件增量；`clear_service_logs(id)` 清空；`logSource` 只在标签头部显示来源（进程输出 / 文件路径），**不显示文件内容以外的东西**。
+
+日志标签必须有的功能：
+
+| 能力 | 说明 |
+|---|---|
+| 实时跟随 | 默认开启；用户滚动到底部才自动跟随，手动上滚不打断阅读 |
+| 暂停 / 继续 | 暂停时停止渲染新行（后端照常收日志），恢复后补齐 |
+| 过滤 | 关键词（大小写不敏感，可选正则），显示「命中/总数」 |
+| 清空 | 调 `clear_service_logs` |
+| 复制 / 导出 | 复制当前过滤后的可见行到剪贴板 |
+| 行高亮 | 含 `error` / `错误` / `fail` / `warn` 的行用告警色 |
+| 空态 | 没配日志来源（外部进程且 `logSource=process`）时说明「外部进程抓不到 stdout，请配 logSource 文件跟踪」 |
+
+**E2E 需要的稳定钩子**（`data-testid`，不要改名）：`log-tab`、`log-tab-title`、`log-tab-body`、`log-tab-lines`、
+`log-tab-filter`、`log-tab-follow`、`log-tab-pause`、`log-tab-clear`、`log-tab-copy`、`log-tab-empty`、
+`tab-strip-item`、`service-row-logs`、`drawer-open-log-tab`。
+
+详情抽屉里保留一个「打开日志标签」按钮；原来的内嵌日志面板可以移除（轮询逻辑搬进标签）。
+
+
 
 
