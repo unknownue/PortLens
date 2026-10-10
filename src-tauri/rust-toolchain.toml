@@ -1,0 +1,7 @@
+# 固定 Rust 工具链版本。
+#
+# 原因（与 LogLens 相同）：rustc 1.98.0 stable 在编译 windows crate v0.61.x
+# 时触发 STATUS_STACK_BUFFER_OVERRUN 崩溃；1.97.0 可正常编译。
+[toolchain]
+channel = "1.97.0"
+components = ["rustfmt", "clippy"]

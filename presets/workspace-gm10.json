@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "settings": {
+    "pollIntervalMs": 1000,
+    "language": "zh",
+    "theme": "dark",
+    "stopManagedOnExit": false
+  },
+  "services": [
+    {
+      "id": "dsh-web-15080",
+      "name": "dsh web (GUI)",
+      "port": 15080,
+      "command": null,
+      "cwd": "E:\\Workspace",
+      "health": { "type": "http", "path": "/", "intervalMs": 3000, "timeoutMs": 1500, "failureThreshold": 2 }
+    },
+    {
+      "id": "codemaker-hub-15721",
+      "name": "CodeMaker 本地 LLM 代理",
+      "port": 15721,
+      "command": null,
+      "cwd": null,
+      "health": { "type": "tcp", "intervalMs": 3000, "timeoutMs": 1000, "failureThreshold": 2 }
+    },
+    {
+      "id": "stzbmcp-host-15901",
+      "name": "stzbmcp 宿主服务",
+      "port": 15901,
+      "command": "powershell -NoProfile -ExecutionPolicy Bypass -File host\\stzbmcp_host.ps1",
+      "cwd": "E:\\Workspace\\dev-kit\\stzbmcp",
+      "health": { "type": "http", "path": "/status", "intervalMs": 3000, "timeoutMs": 1500, "failureThreshold": 2 }
+    },
+    {
+      "id": "stzbmcp-viewer-15910",
+      "name": "stzbmcp 记录查看器",
+      "port": 15910,
+      "command": "python3 serve.py --port 15910",
+      "cwd": "E:\\Workspace\\dev-kit\\stzbmcp\\viewer",
+      "health": { "type": "http", "path": "/", "intervalMs": 3000, "timeoutMs": 1500, "failureThreshold": 2 }
+    }
+  ]
+}

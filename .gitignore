@@ -1,0 +1,28 @@
+# Logs
+logs
+*.log
+
+# Local build/test scratch (e2e runs, build logs)
+tmp/
+
+# Node
+node_modules
+dist
+dist-ssr
+*.local
+
+# Rust / Tauri build artifacts
+src-tauri/target/
+src-tauri/gen/
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.sw?
+
+# Python tools
+__pycache__/
+*.pyc

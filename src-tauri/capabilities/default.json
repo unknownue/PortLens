@@ -1,0 +1,17 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Capability for the main app webview only. Child page webviews (page-*) intentionally match no capability, so remote/local pages loaded into them have no IPC access.",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-minimize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-close",
+    "core:window:allow-start-dragging",
+    "core:window:allow-set-theme",
+    "core:window:allow-set-title",
+    "opener:default",
+    "dialog:default"
+  ]
+}
