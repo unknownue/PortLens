@@ -133,6 +133,10 @@ open questions:  4 port candidates - confirm which one is the real listen port
 ```
 
 同一个仓库里的查看器是另一条记录：`15910` + `python3 serve.py --port 15910`，`cwd` 指到 `viewer\`。
+它的实测接入过程（2026-10-10，`tmp/onboard-demo.mjs`，7/7 通过）里有两点值得照抄：
+
+- 扫描器给的是 p3 候选 `start-viewer.bat`（双击友好包装，会顺手开浏览器）；回读 `serve.py` 的 docstring 后改用直接命令 `python3 serve.py --port 15910`，并把 `-NoOpen` 这类交互副作用留在用户手里。
+- 扫描器的 health 候选是 `/health`，而真实路由是 `/api/health`（docstring 里写的）——**探针路径必须回读源码确认**；用错路径的表现是端口在听、状态却是「降级」。
 
 ## 八、相关文件
 
