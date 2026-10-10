@@ -6,6 +6,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import {
   appTarget,
+  assertAppStaysUp,
   connect,
   invoke,
   launchRelease,
@@ -18,6 +19,7 @@ import {
 
 const PORT = 15200;
 const SERVICE_ID = "e2e-15200";
+const HTTP_ID = "e2e-http-15202";
 const ATTACH = process.argv.includes("--attach");
 const NODE_CMD = `node -e "require('net').createServer(s=>s.end()).listen(${PORT})"`;
 
@@ -25,6 +27,7 @@ const checks = [];
 const record = (name, ok, detail = "") => checks.push({ name, ok, detail });
 
 const appChild = ATTACH ? null : launchRelease({ dataDir: makeDataDir("ports") });
+if (appChild) await assertAppStaysUp(appChild);
 const foreign = spawn(process.execPath, ["-e", `require('net').createServer(s=>s.end()).listen(${PORT})`], {
   stdio: "ignore",
 });
@@ -159,6 +162,61 @@ try {
   // 6. logs captured the child output
   const logs = await invoke(client, "get_service_logs", { id: SERVICE_ID, limit: 50 });
   record("service logs are captured", logs.some((line) => line.includes("started pid=")), `lines=${logs.length}`);
+
+  // 7. HTTP probe: healthy on the configured path, degraded when the path starts failing
+  const HTTP_PORT = 15202;
+  const http = spawn(
+    process.execPath,
+    [
+      "-e",
+      `require('http').createServer((q,s)=>{ if(q.url==='/ok'){s.writeHead(204);s.end();} else {s.writeHead(404);s.end();} }).listen(${HTTP_PORT})`,
+    ],
+    { stdio: "ignore" },
+  );
+  await waitFor("http fixture up", () => tcpOpen(HTTP_PORT));
+  await invoke(client, "add_service", {
+    service: {
+      id: HTTP_ID,
+      name: "E2E HTTP 服务",
+      port: HTTP_PORT,
+      command: null,
+      cwd: null,
+      health: { type: "http", path: "/ok", intervalMs: 500, timeoutMs: 800, failureThreshold: 2 },
+    },
+  });
+  const httpHealthy = await waitFor(
+    "http probe reports healthy",
+    async () => {
+      const list = await invoke(client, "get_services");
+      const view = list.find((v) => v.id === HTTP_ID);
+      return view && view.status.state === "healthy" ? view : false;
+    },
+    25000,
+  );
+  record("http probe turns a listening port healthy", httpHealthy.status.state === "healthy", `detail=${httpHealthy.status.detail}`);
+
+  await invoke(client, "update_service", {
+    service: {
+      id: HTTP_ID,
+      name: "E2E HTTP 服务",
+      port: HTTP_PORT,
+      command: null,
+      cwd: null,
+      health: { type: "http", path: "/missing", intervalMs: 300, timeoutMs: 800, failureThreshold: 2 },
+    },
+  });
+  const degraded = await waitFor(
+    "http probe degrades on a failing path",
+    async () => {
+      const list = await invoke(client, "get_services");
+      const view = list.find((v) => v.id === HTTP_ID);
+      return view && view.status.state === "degraded" ? view : false;
+    },
+    25000,
+  );
+  record("failing http probe degrades a listening port", degraded.status.state === "degraded", `detail=${degraded.status.detail}`);
+  await invoke(client, "remove_service", { id: HTTP_ID });
+  http.kill();
 
   await invoke(client, "remove_service", { id: SERVICE_ID });
   const after = await invoke(client, "get_services");

@@ -5,6 +5,7 @@
 import { spawnSync } from "node:child_process";
 import {
   appTarget,
+  assertAppStaysUp,
   connect,
   evaluate,
   invoke,
@@ -23,6 +24,7 @@ const record = (name, ok, detail = "") => checks.push({ name, ok, detail });
 
 const dataDir = makeDataDir("smoke");
 const appChild = launchRelease({ dataDir });
+await assertAppStaysUp(appChild);
 const consoleErrors = [];
 const cspErrors = [];
 

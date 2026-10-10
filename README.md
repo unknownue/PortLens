@@ -13,6 +13,12 @@ Tauri 2（Rust 后端 + WebView2 前端）+ React 19 + shadcn/ui（Tailwind v4�
 - **应用内多标签页面浏览**：每个标签一个真实子 WebView（不是 iframe），可开多个服务页面、切标签、改地址、刷新、关闭；标签与窗口尺寸会记住。
 - **端口风险告警**：端口落在 Windows 动态端口段或 winnat/Hyper-V 排除段时给出徽标（这类端口可能被抢占，`listen` 报 EACCES）。
 
+## 截图
+
+![PortLens](docs/screenshot.png)
+
+（导入 `presets/workspace-gm10.json` 后的仪表盘：健康 / 降级 / 端口冲突 / 已停止 四种状态，底部是外部占用计数。）
+
 ## 环境要求
 
 - Windows 10 1809+（WebView2）

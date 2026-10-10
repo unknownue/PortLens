@@ -132,7 +132,24 @@ export function launchRelease({ dataDir }) {
     },
     stdio: "ignore",
   });
+  let exitCode = null;
+  child.once("exit", (code) => {
+    exitCode = code;
+  });
+  child.exitCodeOfApp = () => exitCode;
   return child;
+}
+
+/** Fail fast (clear message) when the app refuses to stay up. `kill -9` leftovers are the usual cause. */
+export async function assertAppStaysUp(child, waitMs = 3000) {
+  await sleep(waitMs);
+  const code = child.exitCodeOfApp ? child.exitCodeOfApp() : null;
+  if (code !== null) {
+    throw new Error(
+      `PortLens exited immediately (code ${code}). Another instance is probably still running ` +
+        `(single-instance guard) — kill it with: taskkill /IM PortLens.exe /F`,
+    );
+  }
 }
 
 export function makeDataDir(tag) {

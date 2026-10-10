@@ -13,7 +13,7 @@
       "port": 15080,
       "command": null,
       "cwd": "E:\\Workspace",
-      "health": { "type": "http", "path": "/", "intervalMs": 3000, "timeoutMs": 1500, "failureThreshold": 2 }
+      "health": { "type": "tcp", "intervalMs": 3000, "timeoutMs": 1000, "failureThreshold": 2 }
     },
     {
       "id": "codemaker-hub-15721",

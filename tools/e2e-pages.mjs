@@ -10,6 +10,7 @@ import path from "node:path";
 import {
   APP_DIR,
   appTarget,
+  assertAppStaysUp,
   cdpTargets,
   connect,
   invoke,
@@ -48,6 +49,7 @@ const serverA = await serve(PORT_A, "PORTLENS-PAGE-A");
 const serverB = await serve(PORT_B, "PORTLENS-PAGE-B");
 const dataDir = makeDataDir("pages");
 const appChild = ATTACH ? null : launchRelease({ dataDir });
+if (appChild) await assertAppStaysUp(appChild);
 
 const targetUrls = async () => (await cdpTargets()).filter((t) => t.type === "page").map((t) => t.url || "");
 
