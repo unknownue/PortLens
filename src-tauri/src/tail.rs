@@ -262,7 +262,7 @@ mod tests {
             command: None,
             cwd: None,
             health: HealthConfig::default(),
-            log_source: source,
+            log_source: source,            page: None,
         }
     }
 

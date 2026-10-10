@@ -10,6 +10,7 @@ import {
   Trash,
 } from "lucide-react";
 import type { ReactNode } from "react";
+import { useEffect, useRef } from "react";
 
 import { RiskyBadge, StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
@@ -42,6 +43,12 @@ function hasCommand(view: ServiceView): boolean {
   return Boolean(view.command && view.command.trim());
 }
 
+/**
+ * Wait before treating a row click as "details": a double click also fires two single
+ * clicks first, and the drawer would cover the page tab we are about to open.
+ */
+const ROW_CLICK_DELAY_MS = 220;
+
 export function ServiceTable({
   services,
   onStart,
@@ -54,9 +61,23 @@ export function ServiceTable({
   onDetails,
 }: ServiceTableProps) {
   const t = useT();
+  const clickTimer = useRef<number | null>(null);
   const rows = [...services].sort(
     (a, b) => compareBySeverity(a.status.state, b.status.state) || a.name.localeCompare(b.name),
   );
+
+  useEffect(() => {
+    return () => {
+      if (clickTimer.current !== null) window.clearTimeout(clickTimer.current);
+    };
+  }, []);
+
+  const cancelPendingClick = () => {
+    if (clickTimer.current !== null) {
+      window.clearTimeout(clickTimer.current);
+      clickTimer.current = null;
+    }
+  };
 
   if (rows.length === 0) {
     return (
@@ -87,7 +108,19 @@ export function ServiceTable({
             <TableRow
               key={view.id}
               className="cursor-pointer"
-              onClick={() => onDetails(view)}
+              onClick={() => {
+                cancelPendingClick();
+                clickTimer.current = window.setTimeout(() => {
+                  clickTimer.current = null;
+                  onDetails(view);
+                }, ROW_CLICK_DELAY_MS);
+              }}
+              onDoubleClick={() => {
+                // Opens the configured page (`open_service_page`) instead of the old
+                // URL-only tab, so the service's request headers get injected.
+                cancelPendingClick();
+                onOpenPage(view);
+              }}
               data-state={view.status.state}
             >
               <TableCell>

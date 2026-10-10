@@ -79,6 +79,31 @@ export type HealthConfig = {
   failureThreshold: number;
 };
 
+/** Declarative page settings of a service (docs/CONTRACT.md §9). */
+export type PageConfig = {
+  url?: string | null;
+  /** Key = header name, value = literal or `${env:NAME}` / `${file:PATH:KEY}`. */
+  headers?: Record<string, string>;
+  title?: string | null;
+};
+
+/** Masked header row from `ServiceView.page.headers`; values are never plaintext here. */
+export type HeaderView = { name: string; masked: string };
+
+/** Effective page settings resolved by the backend; safe to render. */
+export type PageView = {
+  url: string;
+  title: string;
+  headers: HeaderView[];
+  externalHost: boolean;
+};
+
+/** One plaintext header, as returned by `get_page_config`. */
+export type PlainHeader = { name: string; value: string };
+
+/** `get_page_config` response: the only read path that carries header plaintext. */
+export type PageConfigPlain = { url: string; title: string; headers: PlainHeader[] };
+
 export type ServiceDef = {
   id: string;
   name: string;
@@ -87,6 +112,7 @@ export type ServiceDef = {
   cwd?: string | null;
   health: HealthConfig;
   logSource: LogSource;
+  page?: PageConfig;
 };
 
 export type ServiceStatus = {
@@ -101,7 +127,7 @@ export type ServiceStatus = {
   history: boolean[];
 };
 
-export type ServiceView = ServiceDef & { status: ServiceStatus; risky: boolean };
+export type ServiceView = ServiceDef & { status: ServiceStatus; risky: boolean; page: PageView };
 
 export type ListenerView = {
   port: number;
@@ -140,6 +166,9 @@ export type NoticeLevel = "info" | "warn" | "error";
 export type Notice = { level: NoticeLevel; code: string; detail: string };
 
 export type PageLoadPayload = { label: string; url: string; phase: "started" | "finished" };
+
+/** `page-status` event: the document answered 401/403 (headers may be needed). */
+export type PageStatusPayload = { label: string; url: string; status: number };
 
 export type LogPayload = { id: string; lines: string[] };
 
@@ -182,6 +211,73 @@ export function blankService(port = 15001): ServiceDef {
     cwd: null,
     health: defaultHealth(),
     logSource: defaultLogSource(),
+    page: blankPage(),
+  };
+}
+
+/** Effective page URL when `page.url` is empty: loopback on the service port. */
+export function defaultPageUrl(port: number): string {
+  return `http://127.0.0.1:${port}/`;
+}
+
+export function blankPage(): PageConfig {
+  return { url: null, headers: {}, title: null };
+}
+
+/**
+ * Manifests written before v0.3 have no `page`; normalize whatever is there into
+ * the declarative shape. Non-string header values are dropped instead of coerced.
+ */
+export function asPageConfig(value: Partial<PageConfig> | null | undefined): PageConfig {
+  const headers: Record<string, string> = {};
+  const raw = value?.headers;
+  if (raw && typeof raw === "object") {
+    for (const [name, headerValue] of Object.entries(raw)) {
+      if (typeof headerValue === "string") headers[name] = headerValue;
+    }
+  }
+  return {
+    url: typeof value?.url === "string" && value.url.trim() ? value.url.trim() : null,
+    headers,
+    title: typeof value?.title === "string" && value.title.trim() ? value.title.trim() : null,
+  };
+}
+
+/**
+ * Renderable page view. Rebuilds every row from `name` + `masked` only, so a payload
+ * that wrongly carries a plaintext `value` cannot leak through this function. Accepts
+ * `PageConfig` too, which is what an older manifest hands us instead of a view.
+ */
+export function asPageView(value: unknown, port = 0): PageView {
+  const source = (value ?? {}) as {
+    url?: unknown;
+    title?: unknown;
+    headers?: unknown;
+    externalHost?: unknown;
+  };
+  const raw: readonly unknown[] = Array.isArray(source.headers) ? source.headers : [];
+  const headers: HeaderView[] = [];
+  for (const entry of raw) {
+    const row = entry as { name?: unknown; masked?: unknown } | null | undefined;
+    const name = typeof row?.name === "string" ? row.name : "";
+    if (!name) continue;
+    headers.push({ name, masked: typeof row?.masked === "string" ? row.masked : "" });
+  }
+  return {
+    url: typeof source.url === "string" && source.url ? source.url : defaultPageUrl(port),
+    title: typeof source.title === "string" ? source.title : "",
+    headers,
+    externalHost: source.externalHost === true,
+  };
+}
+
+/** Masked view back into the declarative shape; header values are never copied over. */
+export function asPageConfigFromView(value: unknown): PageConfig {
+  const source = (value ?? {}) as { url?: unknown; title?: unknown };
+  return {
+    url: typeof source.url === "string" && source.url ? source.url : null,
+    title: typeof source.title === "string" && source.title ? source.title : null,
+    headers: {},
   };
 }
 

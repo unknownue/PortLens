@@ -241,3 +241,59 @@ type ServiceView = ServiceDef & { status: ServiceStatus; risky: boolean };
 - 事件与进程日志共用一条通道：写入同一个 `LogStore` 环形缓冲（2000 行）→ `service-log` 事件 / `get_service_logs`。
 - 文件不存在时不报错，静默等待它出现（例如服务尚未启动）。
 
+## 9. 页面请求头注入（v0.3 新增）
+
+服务可声明「页面」配置：标签打开该服务的页面时，PortLens 对**目标 origin** 的请求注入这些请求头（WebView2 `WebResourceRequested`），
+让需要 token 的服务不必为浏览器开后门。
+
+```ts
+type PageConfig = {
+  url?: string | null;                        // 缺省 http://127.0.0.1:<port>/
+  headers?: Record<string, string>;           // 键=头名，值=字面量或 ${env:NAME} / ${file:PATH:KEY}
+  title?: string | null;                      // 标签标题，缺省服务名
+};
+
+type ServiceDef = { ...; page?: PageConfig };                 // 新增，可缺省
+
+type HeaderView = { name: string; masked: string };           // 非空值一律 "••••••"
+
+type PageView = {
+  url: string;              // 生效 URL（page.url 或缺省）
+  title: string;            // 生效标题
+  headers: HeaderView[];    // 掩码后的请求头（列表/详情用这个）
+  externalHost: boolean;    // true = 目标不是回环地址，界面要提示「会把凭据发给该主机」
+};
+type ServiceView = ServiceDef & { status: ServiceStatus; risky: boolean; page: PageView };
+```
+
+命令：
+
+| 命令 | 参数 | 返回 | 说明 |
+|---|---|---|---|
+| `open_service_page` | `{ id, x, y, w, h }` | `PageTab` | 按服务的 page 配置建标签并注入请求头 |
+| `get_page_config` | `{ id }` | `{ url, title, headers: [{name, value}] }` | **明文**，只给编辑对话框回填用 |
+| `reveal_page_header` | `{ id, name }` | `string` | 明文，只在用户点「显示/复制」时调 |
+
+事件：`page-status` = `{ label, url, status }` —— 目标文档响应 401/403 时发出，前端在标签上给可点提示
+（「该页面可能需要请求头，检查服务的 page.headers 配置」）。没配 headers 时同样会发。
+
+硬规则（前端）：
+
+- 列表、详情、标签标题、console、`ui.json` **都不得出现 header 明文**；需要明文只有 `get_page_config` / `reveal_page_header` 两条路径。
+- `ui.json` 仍然只存 `PageTab { label, title, url }` 与窗口几何。
+- 掩码：值非空 → `"••••••"`（6 个圆点）；值空 → `""`。
+- 注入只对 `page.url` 的 origin 生效；跨 origin 重定向后不再注入（后端保证，前端不要假设）。
+
+实现要点（后端）：
+
+- 受保护头清单以 `config.rs::PROTECTED_HEADERS` 为准（大小写不敏感）：
+  `host`、`content-length`、`connection`、`transfer-encoding`、`upgrade`、`keep-alive`、`te`、`trailer`、
+  `expect`、`via`、`proxy-connection`、`proxy-authorization`、`http2-settings`；头名还不得含冒号与控制字符（含 `\r\n` 注入）。
+- 注入走 WebView2 `WebResourceRequested`（过滤器限定 `scheme://host:port/*`，处理函数再校验一次 origin）；
+  401/403 靠 `ICoreWebView2_2::WebResourceResponseReceived` 只看顶层文档。
+- **时序**：标签先以 `about:blank` 建视图 → 注册拦截器 → 再 `navigate()` 到 `page.url`（`about:blank` 不产生 `page-load` 事件）。
+- **恢复标签**：`ui.json` 只有 URL，`open_page(url)` 会按 `page.url` 匹配服务并**现取**请求头；匹配不上就只装拦截器（仍能报 401/403）。
+- header 值支持 `${env:NAME}` 与 `${file:PATH:KEY}`（`secrets.rs`）；解析失败时 `open_service_page` 直接报错，恢复标签则降级为不注入并留一行日志。
+
+
+

@@ -7,6 +7,7 @@ import type {
   EnvView,
   ListenerView,
   NoticeLevel,
+  PageConfigPlain,
   PageTab,
   Rect,
   ServiceDef,
@@ -37,6 +38,13 @@ export const api = {
   takeSavedPages: () => invoke<PageTab[]>("take_saved_pages"),
   openPage: (url: string, title: string, rect: Rect) =>
     invoke<PageTab>("open_page", { url, title, ...rect }),
+  /** Opens the service's configured page and injects its `page.headers`. */
+  openServicePage: (id: string, rect: Rect) => invoke<PageTab>("open_service_page", { id, ...rect }),
+  /** Plaintext page config, for prefilling the edit dialog only. */
+  getPageConfig: (id: string) => invoke<PageConfigPlain>("get_page_config", { id }),
+  /** Plaintext of a single header, only when the user asks to reveal or copy it. */
+  revealPageHeader: (id: string, name: string) =>
+    invoke<string>("reveal_page_header", { id, name }),
   closePage: (label: string) => invoke<void>("close_page", { label }),
   /** `null` hides every child page view and shows the dashboard. */
   activatePage: (label: string | null) => invoke<void>("activate_page", { label }),

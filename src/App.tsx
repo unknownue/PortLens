@@ -23,6 +23,7 @@ import {
   DEFAULT_SETTINGS,
   asLanguage,
   asLogSource,
+  asPageConfigFromView,
   asTheme,
   blankService,
   type EnvView,
@@ -42,6 +43,11 @@ import {
 /** localStorage key remembering which page tab was active across restarts. */
 const REMEMBERED_ACTIVE_KEY = "portlens.lastActiveUrl";
 
+/** Stable identity so the edit dialog's hydration effect does not re-run every render. */
+const NO_MASKED_HEADERS: string[] = [];
+
+type ServiceDialogState = { mode: "add" | "edit"; def: ServiceDef; maskedHeaders: string[] };
+
 export default function App() {
   const [services, setServices] = useState<ServiceView[]>([]);
   const [listeners, setListeners] = useState<ListenerView[]>([]);
@@ -51,7 +57,7 @@ export default function App() {
   const [activeLabel, setActiveLabel] = useState<string | null>(null);
   const [loading, setLoading] = useState<Record<string, boolean>>({});
   const [detailId, setDetailId] = useState<string | null>(null);
-  const [serviceDialog, setServiceDialog] = useState<{ mode: "add" | "edit"; def: ServiceDef } | null>(null);
+  const [serviceDialog, setServiceDialog] = useState<ServiceDialogState | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [newTabOpen, setNewTabOpen] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<ServiceView | null>(null);
@@ -121,8 +127,26 @@ export default function App() {
     [],
   );
 
-  const refresh = useCallback(async () => {
+  /**
+   * Opens the service's configured page: the backend resolves `page.url` / `page.title`
+   * and injects `page.headers`, then returns the tab (its title is what we display).
+   */
+  const createServicePage = useCallback(async (id: string) => {
+    const rect = rectOf(contentRef.current);
+    if (!rect) {
+      toast.error(tRef.current("toast.noBounds"));
+      return;
+    }
     try {
+      const tab = await api.openServicePage(id, rect);
+      setTabs((prev) => [...prev, tab]);
+      setActiveLabel(tab.label);
+    } catch (error) {
+      toast.error(tRef.current("toast.failed", { message: errorText(error) }));
+    }
+  }, []);
+
+  const refresh = useCallback(async () => {    try {
       const [views, listenerViews] = await Promise.all([api.getServices(), api.listListeners()]);
       setServices(views);
       setListeners(listenerViews);
@@ -487,7 +511,7 @@ export default function App() {
             lang={lang}
             theme={theme}
             startable={startable}
-            onAdd={() => setServiceDialog({ mode: "add", def: blankService() })}
+            onAdd={() => setServiceDialog({ mode: "add", def: blankService(), maskedHeaders: NO_MASKED_HEADERS })}
             onStartAll={() => {
               for (const view of services) {
                 if (view.command && view.command.trim()) void startService(view);
@@ -537,7 +561,7 @@ export default function App() {
                   onStop={(view) => void stopService(view)}
                   onRestart={(view) => void restartService(view)}
                   onProbe={(view) => void probeService(view)}
-                  onOpenPage={(view) => void createPage(serviceUrl(view.port), view.name)}
+                  onOpenPage={(view) => void createServicePage(view.id)}
                   onEdit={(view) =>
                     setServiceDialog({
                       mode: "edit",
@@ -549,7 +573,11 @@ export default function App() {
                         cwd: view.cwd ?? null,
                         health: { ...view.health },
                         logSource: asLogSource(view.logSource),
+                        // Masked view only: header values are dropped here and the dialog
+                        // refetches them in plaintext through `get_page_config`.
+                        page: asPageConfigFromView(view.page),
                       },
+                      maskedHeaders: (view.page?.headers ?? []).map((header) => header.name),
                     })
                   }
                   onDelete={(view) => setPendingDelete(view)}
@@ -565,6 +593,7 @@ export default function App() {
           open={serviceDialog !== null}
           mode={serviceDialog?.mode ?? "add"}
           initial={serviceDialog?.def ?? blankService()}
+          maskedHeaders={serviceDialog?.maskedHeaders ?? NO_MASKED_HEADERS}
           env={env}
           onOpenChange={(open) => {
             if (!open) setServiceDialog(null);

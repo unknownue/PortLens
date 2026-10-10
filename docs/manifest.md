@@ -60,6 +60,35 @@
 | `logSource.type` | `process`（默认，抓本工具拉起的进程 stdout/stderr）或 `file`（跟踪日志文件） |
 | `logSource.path` | `file` 时必填；支持 `*` / `?` 通配，每拍取修改时间最新的匹配文件（按日期切分的日志用它） |
 | `logSource.encoding` | 默认 `utf-8`；可选 `gbk` / `gb18030` / `utf-16le` / `utf-16be` / `shift_jis` / `big5` |
+| `page.url` | 页面标签打开哪个地址；留空 = `http://127.0.0.1:<port>/`；只支持 http(s) |
+| `page.headers` | 打开该页面的请求头（键=头名）。值支持 `${env:NAME}` / `${file:PATH:KEY}`，避免明文入库 |
+| `page.title` | 标签标题；留空 = 服务名 |
+
+## 页面与请求头（需要鉴权的服务）
+
+有些本地服务对浏览器不友好：`stzbmcp` 宿主服务除 `/health` 外都校验 `X-STZBMCP-Token`，
+直接开标签只能看到一行 403 JSON。给它配上 `page` 就能正常打开：
+
+```json
+"page": {
+  "url": "http://127.0.0.1:15901/status",
+  "headers": { "X-STZBMCP-Token": "${file:E:\\Workspace\\ws\\trunk\\.ws.env:STZBMCP_TOKEN}" },
+  "title": "stzbmcp 宿主服务"
+}
+```
+
+语义与边界：
+
+- 请求头**只发给 `page.url` 的 origin**（`scheme://host:port`）：顶层文档、同源子资源、`fetch` / `XHR`、刷新都带上；
+  跨 origin 的跳转与第三方资源一律不带（`inject.rs` 过滤器 + 处理函数双重校验）。
+- 支持 `${env:NAME}` 与 `${file:PATH:KEY}`（`PATH` 是 `KEY=VALUE` 文本，如 `.ws.env`，容忍 `export` 与引号）。
+  清单里因此**不出现明文**；界面列表只显示 `••••••`，明文仅在编辑对话框回填与「显示/复制」时按需取。
+- 受保护头（`Host`、`Content-Length`、`Connection`、`Transfer-Encoding` 等）会被拒绝保存；头名/值里的控制字符（换行注入）同样拒绝。
+- `page.url` 指向非回环地址时界面会提示「会把配置的请求头发给该主机」。
+- 目标文档返回 401/403 时，标签上出现可点提示（即使没配 `headers` 也会提示），文案指向这里。
+- `ui.json` 只记标签的 label/title/url；重启恢复标签时请求头从清单现取，不落盘。
+
+机制细节（WebView2 `WebResourceRequested`、时序、为什么不是 iframe）见 [pages.md](pages.md)。
 
 `settings.stopManagedOnExit`：退出应用时是否停止由本工具启动的服务（默认 false，即保持运行）。
 `settings.pollIntervalMs`：监听表与状态的轮询间隔，默认 1000。

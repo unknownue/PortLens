@@ -29,7 +29,13 @@
       "port": 15901,
       "command": "powershell -NoProfile -ExecutionPolicy Bypass -File host\\stzbmcp_host.ps1",
       "cwd": "E:\\Workspace\\dev-kit\\stzbmcp",
-      "health": { "type": "http", "path": "/status", "intervalMs": 3000, "timeoutMs": 1500, "failureThreshold": 2 }
+      "health": { "type": "http", "path": "/health", "intervalMs": 3000, "timeoutMs": 1500, "failureThreshold": 2 },
+      "logSource": { "type": "file", "path": "E:\\Workspace\\dev-kit\\stzbmcp\\logs\\host.log", "encoding": "utf-8" },
+      "page": {
+        "url": "http://127.0.0.1:15901/status",
+        "headers": { "X-STZBMCP-Token": "${file:E:\\Workspace\\ws\\trunk\\.ws.env:STZBMCP_TOKEN}" },
+        "title": "stzbmcp 宿主服务"
+      }
     },
     {
       "id": "stzbmcp-viewer-15910",
@@ -37,6 +43,14 @@
       "port": 15910,
       "command": "python3 serve.py --port 15910",
       "cwd": "E:\\Workspace\\dev-kit\\stzbmcp\\viewer",
+      "health": { "type": "http", "path": "/", "intervalMs": 3000, "timeoutMs": 1500, "failureThreshold": 2 }
+    },
+    {
+      "id": "topics-docs-15085",
+      "name": "stzb 主题文档站",
+      "port": 15085,
+      "command": "python3 -m http.server 15085 --bind 127.0.0.1 --directory out",
+      "cwd": "E:\\Workspace\\dev-kit\\docs\\topics",
       "health": { "type": "http", "path": "/", "intervalMs": 3000, "timeoutMs": 1500, "failureThreshold": 2 }
     }
   ]

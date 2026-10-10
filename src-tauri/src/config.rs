@@ -1,6 +1,6 @@
 //! 清单（services.json）与数据目录路径。
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
@@ -106,6 +106,84 @@ pub struct ServiceDef {
     pub health: HealthConfig,
     #[serde(default, rename = "logSource")]
     pub log_source: LogSource,
+    /// 页面标签配置：URL / 注入的请求头 / 标签标题。缺省时按端口拼 `http://127.0.0.1:<port>/`。
+    #[serde(default)]
+    pub page: Option<PageConfig>,
+}
+
+/// `page` 块：标签打开哪个地址、带哪些请求头。
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PageConfig {
+    #[serde(default)]
+    pub url: Option<String>,
+    /// 键=头名，值=字面量或 `${env:NAME}` / `${file:PATH:KEY}`（见 `secrets.rs`）。
+    /// BTreeMap：序列化顺序稳定，界面上按名字排。
+    #[serde(default)]
+    pub headers: BTreeMap<String, String>,
+    #[serde(default)]
+    pub title: Option<String>,
+}
+
+/// 这些头由 HTTP 栈/浏览器自己管理，声明了也不该由应用覆盖。
+pub const PROTECTED_HEADERS: &[&str] = &[
+    "host",
+    "content-length",
+    "connection",
+    "transfer-encoding",
+    "upgrade",
+    "keep-alive",
+    "te",
+    "trailer",
+    "expect",
+    "via",
+    "proxy-connection",
+    "proxy-authorization",
+    "http2-settings",
+];
+
+/// 请求头值的展示掩码：非空一律 6 个圆点。
+pub fn mask(value: &str) -> String {
+    if value.is_empty() {
+        String::new()
+    } else {
+        "••••••".to_string()
+    }
+}
+
+/// 是否是本机地址（回环 / localhost）——用于「会把凭据发给外部主机」的提示。
+pub fn is_loopback_host(url: &str) -> bool {
+    let Ok(parsed) = tauri::Url::parse(url) else { return false };
+    let Some(host) = parsed.host_str() else { return false };
+    // url crate 对 IPv6 返回带方括号的 host（`[::1]`），解析 IP 前先脱掉。
+    let bare = host.trim_start_matches('[').trim_end_matches(']');
+    if bare.eq_ignore_ascii_case("localhost") {
+        return true;
+    }
+    bare.parse::<std::net::IpAddr>().map(|ip| ip.is_loopback()).unwrap_or(false)
+}
+
+impl ServiceDef {
+    /// 生效的页面地址：`page.url`，否则按端口拼回环地址。
+    pub fn page_url(&self) -> String {
+        match self.page.as_ref().and_then(|page| page.url.as_deref()) {
+            Some(url) if !url.trim().is_empty() => url.trim().to_string(),
+            _ => format!("http://127.0.0.1:{}/", self.port),
+        }
+    }
+
+    /// 生效的标签标题：`page.title`，否则服务名。
+    pub fn page_title(&self) -> String {
+        match self.page.as_ref().and_then(|page| page.title.as_deref()) {
+            Some(title) if !title.trim().is_empty() => title.trim().to_string(),
+            _ => self.name.clone(),
+        }
+    }
+
+    /// 声明了请求头（不管值能否解析）。
+    pub fn has_page_headers(&self) -> bool {
+        self.page.as_ref().map(|page| !page.headers.is_empty()).unwrap_or(false)
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -243,6 +321,27 @@ pub fn normalize(m: &mut Manifest) {
         if s.log_source.kind == "file" && s.log_source.encoding.is_none() {
             s.log_source.encoding = Some(default_encoding());
         }
+        if let Some(page) = s.page.as_mut() {
+            page.url = page
+                .url
+                .take()
+                .map(|url| url.trim().to_string())
+                .filter(|url| !url.is_empty());
+            page.title = page
+                .title
+                .take()
+                .map(|title| title.trim().to_string())
+                .filter(|title| !title.is_empty());
+            page.headers = page
+                .headers
+                .iter()
+                .map(|(name, value)| (name.trim().to_string(), value.clone()))
+                .filter(|(name, _)| !name.is_empty())
+                .collect();
+        }
+        if s.page.as_ref().map(|page| page.url.is_none() && page.headers.is_empty() && page.title.is_none()).unwrap_or(false) {
+            s.page = None;
+        }
     }
 }
 
@@ -295,6 +394,43 @@ pub fn validate(m: &Manifest) -> Result<(), String> {
             }
             other => return Err(format!("服务 {} 的日志来源类型不支持: {other}", s.id)),
         }
+        validate_page(s)?;
+    }
+    Ok(())
+}
+
+fn validate_page(s: &ServiceDef) -> Result<(), String> {
+    let Some(page) = s.page.as_ref() else { return Ok(()) };
+
+    if let Some(url) = page.url.as_deref().map(str::trim).filter(|u| !u.is_empty()) {
+        match tauri::Url::parse(url) {
+            Ok(parsed) => match parsed.scheme() {
+                "http" | "https" => {}
+                other => {
+                    return Err(format!("服务 {} 的 page.url 只支持 http/https，现在是 {other}", s.id));
+                }
+            },
+            Err(err) => return Err(format!("服务 {} 的 page.url 不是合法地址: {err}", s.id)),
+        }
+    }
+
+    for (name, value) in &page.headers {
+        let name = name.trim();
+        if name.is_empty() {
+            return Err(format!("服务 {} 的 page.headers 有空头名", s.id));
+        }
+        if name.contains(':') {
+            return Err(format!("服务 {} 的请求头名不合法（不能含冒号）: {name}", s.id));
+        }
+        if PROTECTED_HEADERS.contains(&name.to_ascii_lowercase().as_str()) {
+            return Err(format!(
+                "服务 {} 的请求头 {name} 由 HTTP 栈自己管理，不能在这里覆盖",
+                s.id
+            ));
+        }
+        if name.chars().any(|c| c.is_control()) || value.chars().any(|c| c.is_control()) {
+            return Err(format!("服务 {} 的请求头 {name} 含控制字符（可能想注入换行）", s.id));
+        }
     }
     Ok(())
 }
@@ -337,7 +473,7 @@ mod tests {
             command: None,
             cwd: None,
             health: HealthConfig::default(),
-            log_source: LogSource::default(),
+            log_source: LogSource::default(),            page: None,
         }
     }
 
@@ -425,6 +561,112 @@ mod tests {
         assert!(text.contains("\"logSource\""), "{text}");
         assert!(text.contains("\"type\":\"file\""), "{text}");
         assert!(text.contains("\"encoding\":\"gbk\""), "{text}");
+    }
+
+    fn page_def() -> ServiceDef {
+        let mut s = def("stzbmcp-host-15901", 15901);
+        s.page = Some(PageConfig {
+            url: Some("http://127.0.0.1:15901/status".into()),
+            headers: BTreeMap::from([("X-STZBMCP-Token".to_string(), "${env:STZBMCP_TOKEN}".to_string())]),
+            title: Some("stzbmcp 宿主服务".into()),
+        });
+        s
+    }
+
+    #[test]
+    fn page_defaults_and_effective_values() {
+        let plain = def("a", 15080);
+        assert_eq!(plain.page_url(), "http://127.0.0.1:15080/");
+        assert_eq!(plain.page_title(), "a");
+        assert!(!plain.has_page_headers());
+
+        let configured = page_def();
+        assert_eq!(configured.page_url(), "http://127.0.0.1:15901/status");
+        assert_eq!(configured.page_title(), "stzbmcp 宿主服务");
+        assert!(configured.has_page_headers());
+
+        // 空字符串等同没配
+        let mut blank = def("b", 15081);
+        blank.page = Some(PageConfig { url: Some("   ".into()), headers: BTreeMap::new(), title: Some(String::new()) });
+        normalize(&mut Manifest { version: 1, settings: Settings::default(), services: vec![blank.clone()] });
+        assert_eq!(blank.page_url(), "http://127.0.0.1:15081/");
+        assert_eq!(blank.page_title(), "b");
+        assert!(blank.page.is_some()); // normalize 只清空字段，PageConfig 由调用方 hold
+    }
+
+    #[test]
+    fn page_validation_rules() {
+        let mut m = Manifest::defaults();
+        m.services = vec![page_def()];
+        assert!(validate(&m).is_ok(), "合法的 page 应通过");
+
+        // 非法 URL
+        let mut bad_url = m.clone();
+        bad_url.services[0].page.as_mut().unwrap().url = Some("not a url".into());
+        assert!(validate(&bad_url).is_err());
+        // 非 http(s)
+        let mut bad_scheme = m.clone();
+        bad_scheme.services[0].page.as_mut().unwrap().url = Some("file:///C:/x.html".into());
+        assert!(validate(&bad_scheme).is_err());
+        // 受保护头（大小写不敏感）
+        for name in ["Host", "content-length", "Connection", "Transfer-Encoding"] {
+            let mut protected = m.clone();
+            protected.services[0]
+                .page
+                .as_mut()
+                .unwrap()
+                .headers
+                .insert(name.into(), "x".into());
+            assert!(validate(&protected).is_err(), "{name} 应被拒绝");
+        }
+        // 控制字符（换行注入）
+        let mut injected = m.clone();
+        injected.services[0]
+            .page
+            .as_mut()
+            .unwrap()
+            .headers
+            .insert("X-Token".into(), "abc\r\nX-Evil: 1".into());
+        assert!(validate(&injected).is_err());
+        // 空头名 / 带冒号的头名
+        let mut empty_name = m.clone();
+        empty_name.services[0].page.as_mut().unwrap().headers.insert("  ".into(), "x".into());
+        assert!(validate(&empty_name).is_err());
+        let mut colon = m.clone();
+        colon.services[0].page.as_mut().unwrap().headers.insert("X:Bad".into(), "x".into());
+        assert!(validate(&colon).is_err());
+    }
+
+    #[test]
+    fn page_serializes_camel_case_and_masks() {
+        let mut m = Manifest::defaults();
+        m.services = vec![page_def()];
+        let text = serde_json::to_string(&m).unwrap();
+        assert!(text.contains("\"page\""), "{text}");
+        assert!(text.contains("\"url\":\"http://127.0.0.1:15901/status\""), "{text}");
+        assert!(text.contains("X-STZBMCP-Token"), "{text}");
+
+        assert_eq!(mask("secret"), "••••••");
+        assert_eq!(mask(""), "");
+        assert!(is_loopback_host("http://127.0.0.1:15901/status"));
+        assert!(is_loopback_host("http://localhost:15080/"));
+        assert!(is_loopback_host("http://[::1]:8080/"));
+        assert!(!is_loopback_host("http://192.168.1.10:8080/"));
+        assert!(!is_loopback_host("https://example.com/"));
+        assert!(!is_loopback_host("not a url"));
+    }
+
+    #[test]
+    fn old_manifest_without_page_still_normalizes() {
+        let mut m: Manifest = serde_json::from_str(
+            r#"{"services":[{"id":"a","name":"a","port":15080,"command":null,
+                "health":{"type":"tcp"},"logSource":{"type":"process"}}]}"#,
+        )
+        .unwrap();
+        normalize(&mut m);
+        assert!(m.services[0].page.is_none());
+        assert!(validate(&m).is_ok());
+        assert_eq!(m.services[0].page_url(), "http://127.0.0.1:15080/");
     }
 
     #[test]

@@ -10,10 +10,10 @@ use tauri::{AppHandle, Emitter, State};
 use crate::config::{self, HealthConfig, LogSource, Manifest, ServiceDef, Settings};
 use crate::health::{HealthMachine, ServiceStatus, State as ServiceState, Tick};
 use crate::logs::LogStore;
-use crate::pages::{self, PageTab, UiState, WindowRect};
+use crate::pages::{self, PageTab, PageTarget, UiState, WindowRect};
 use crate::supervise::ServiceManager;
 use crate::tail::TailRegistry;
-use crate::{netsh, ports, probe, proc};
+use crate::{netsh, ports, probe, proc, secrets};
 
 pub struct AppState {
     pub manifest: Mutex<Manifest>,
@@ -43,6 +43,42 @@ pub struct ServiceView {
     pub log_source: LogSource,
     pub status: ServiceStatus,
     pub risky: bool,
+    pub page: PageView,
+}
+
+/// 请求头的展示形式：只有名字 + 掩码，明文永远不走这里。
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HeaderView {
+    pub name: String,
+    pub masked: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PageView {
+    /// 生效地址：`page.url`，否则 `http://127.0.0.1:<port>/`。
+    pub url: String,
+    pub title: String,
+    pub headers: Vec<HeaderView>,
+    /// 目标不是回环地址：界面要提示「会把配置的请求头发给该主机」。
+    pub external_host: bool,
+}
+
+/// 编辑对话框回填用的明文视图（只由 `get_page_config` 返回）。
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PageConfigView {
+    pub url: String,
+    pub title: String,
+    pub headers: Vec<HeaderViewRaw>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HeaderViewRaw {
+    pub name: String,
+    pub value: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -146,6 +182,7 @@ impl AppState {
                     log_source: def.log_source.clone(),
                     status,
                     risky: netsh::is_risky(def.port, &env),
+                    page: page_view(&def),
                 }
             })
             .collect()
@@ -190,6 +227,29 @@ impl AppState {
                 }
             })
             .collect()
+    }
+
+    /// 某条 URL 是否命中某个服务的 `page.url`；命中就返回该服务的请求头（解析后的）。
+    ///
+    /// 用于「恢复上次会话的标签」：`ui.json` 里只有 URL，请求头必须从当前清单现取。
+    /// 解析失败不报错（恢复标签不该被一个坏引用卡住），只留一行日志。
+    fn headers_for_url(&self, url: &str) -> Vec<(String, String)> {
+        let target = url.trim().trim_end_matches('/').to_string();
+        let def = self
+            .manifest
+            .lock()
+            .services
+            .iter()
+            .find(|def| def.page_url().trim_end_matches('/') == target)
+            .cloned();
+        let Some(def) = def else { return Vec::new() };
+        match resolve_page_headers(&def) {
+            Ok(headers) => headers,
+            Err(err) => {
+                eprintln!("[portlens] 标签 {url} 的请求头解析失败: {err}");
+                Vec::new()
+            }
+        }
     }
 
     /// 一次轮询：更新监听/存活/退出事实，按各自间隔跑探针，返回发生状态变化的服务快照。
@@ -284,6 +344,40 @@ impl Default for AppState {
     }
 }
 
+fn page_view(def: &ServiceDef) -> PageView {
+    let url = def.page_url();
+    let headers = def
+        .page
+        .as_ref()
+        .map(|page| {
+            page.headers
+                .iter()
+                .map(|(name, value)| HeaderView { name: name.clone(), masked: config::mask(value) })
+                .collect()
+        })
+        .unwrap_or_default();
+    PageView {
+        url: url.clone(),
+        title: def.page_title(),
+        headers,
+        external_host: !config::is_loopback_host(&url),
+    }
+}
+
+/// 把 `page.headers` 里的引用（`${env:...}` / `${file:...:...}`）解析成实际值。
+fn resolve_page_headers(def: &ServiceDef) -> Result<Vec<(String, String)>, String> {
+    let Some(page) = def.page.as_ref() else { return Ok(Vec::new()) };
+    let mut out = Vec::with_capacity(page.headers.len());
+    for (name, raw) in &page.headers {
+        let value = secrets::resolve(raw).map_err(|err| format!("服务 {} 的请求头 {name} 解析失败：{err}", def.id))?;
+        if value.is_empty() {
+            continue;
+        }
+        out.push((name.clone(), value));
+    }
+    Ok(out)
+}
+
 fn normalize_def(mut def: ServiceDef) -> ServiceDef {
     def.id = def.id.trim().to_string();
     if def.id.is_empty() {
@@ -333,6 +427,24 @@ fn normalize_def(mut def: ServiceDef) -> ServiceDef {
         .filter(|encoding| !encoding.is_empty());
     if def.log_source.kind == "file" && def.log_source.encoding.is_none() {
         def.log_source.encoding = Some("utf-8".into());
+    }
+    if let Some(page) = def.page.as_mut() {
+        page.url = page.url.take().map(|url| url.trim().to_string()).filter(|url| !url.is_empty());
+        page.title = page.title.take().map(|title| title.trim().to_string()).filter(|title| !title.is_empty());
+        page.headers = page
+            .headers
+            .iter()
+            .map(|(name, value)| (name.trim().to_string(), value.clone()))
+            .filter(|(name, _)| !name.is_empty())
+            .collect();
+    }
+    if def
+        .page
+        .as_ref()
+        .map(|page| page.url.is_none() && page.headers.is_empty() && page.title.is_none())
+        .unwrap_or(false)
+    {
+        def.page = None;
     }
     def
 }
@@ -548,15 +660,78 @@ pub async fn open_page(
     w: u32,
     h: u32,
 ) -> Result<PageTab, String> {
-    let rect = WindowRect { x, y, w, h };
+    // 任意 URL 的标签：如果这个地址正好是某个服务配的 page.url，就按那个服务注入请求头
+    // （恢复上次会话的标签走的就是这条路：ui.json 只存 url，请求头从清单现取）。
+    let headers = state.headers_for_url(&url);
+    let target = PageTarget { url: url.clone(), headers };
+    open_tab(&app, &state, target, title, WindowRect { x, y, w, h }).await
+}
+
+/// 按服务的 `page` 配置开标签：地址、标题、注入的请求头都从清单现取。
+#[tauri::command]
+pub async fn open_service_page(
+    app: AppHandle,
+    state: State<'_, Arc<AppState>>,
+    id: String,
+    x: i32,
+    y: i32,
+    w: u32,
+    h: u32,
+) -> Result<PageTab, String> {
+    let def = state.def_of(&id)?;
+    let headers = resolve_page_headers(&def)?;
+    let target = PageTarget { url: def.page_url(), headers };
+    open_tab(&app, &state, target, def.page_title(), WindowRect { x, y, w, h }).await
+}
+
+/// 编辑对话框回填：返回**明文**（只有这一条命令与 `reveal_page_header` 会给出明文）。
+#[tauri::command]
+pub fn get_page_config(state: State<'_, Arc<AppState>>, id: String) -> Result<PageConfigView, String> {
+    let def = state.def_of(&id)?;
+    Ok(PageConfigView {
+        url: def.page.as_ref().and_then(|p| p.url.clone()).unwrap_or_default(),
+        title: def.page.as_ref().and_then(|p| p.title.clone()).unwrap_or_default(),
+        headers: def
+            .page
+            .as_ref()
+            .map(|page| {
+                page.headers
+                    .iter()
+                    .map(|(name, value)| HeaderViewRaw { name: name.clone(), value: value.clone() })
+                    .collect()
+            })
+            .unwrap_or_default(),
+    })
+}
+
+/// 单个请求头的明文（解析 `${env:...}` / `${file:...:...}` 之后的实际值），供「显示/复制」使用。
+#[tauri::command]
+pub fn reveal_page_header(state: State<'_, Arc<AppState>>, id: String, name: String) -> Result<String, String> {
+    let def = state.def_of(&id)?;
+    let raw = def
+        .page
+        .as_ref()
+        .and_then(|page| page.headers.get(&name))
+        .ok_or_else(|| format!("服务 {} 没有请求头 {name}", def.id))?;
+    secrets::resolve(raw)
+}
+
+async fn open_tab(
+    app: &AppHandle,
+    state: &State<'_, Arc<AppState>>,
+    target: PageTarget,
+    title: String,
+    rect: WindowRect,
+) -> Result<PageTab, String> {
     let mut ui = state.ui.lock();
     let labels: Vec<String> = ui.tabs.iter().map(|tab| tab.label.clone()).collect();
     let label = pages::next_label(&labels);
-    pages::open(&app, &label, &url, rect)?;
+    pages::open(app, &label, &target, rect)?;
     for tab in ui.tabs.iter() {
-        let _ = pages::set_visible(&app, &tab.label, false);
+        let _ = pages::set_visible(app, &tab.label, false);
     }
-    let tab = PageTab { label: label.clone(), title, url };
+    // ui.json 只存 label/title/url：请求头永远不落盘（启动恢复时从清单现取）。
+    let tab = PageTab { label: label.clone(), title, url: target.url.clone() };
     ui.tabs.push(tab.clone());
     ui.active = Some(label.clone());
     pages::save_ui(&ui);

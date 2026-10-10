@@ -60,6 +60,7 @@ fn start_and_stop_a_real_node_listener() {
         cwd: None,
         health: HealthConfig::default(),
         log_source: LogSource::default(),
+        page: None,
     };
 
     let logs = LogStore::new();
@@ -117,6 +118,7 @@ fn start_refuses_when_port_is_taken() {
         cwd: None,
         health: HealthConfig::default(),
         log_source: LogSource::default(),
+        page: None,
     };
 
     let mut manager = ServiceManager::new(LogStore::new());

@@ -3,6 +3,7 @@
 // 模块公开：集成测试（tests/）直接用这些类型，不经过 Tauri 命令层。
 pub mod config;
 pub mod health;
+pub mod inject;
 pub mod logs;
 pub mod monitor;
 pub mod netsh;
@@ -10,6 +11,7 @@ pub mod pages;
 pub mod ports;
 pub mod probe;
 pub mod proc;
+pub mod secrets;
 pub mod state;
 pub mod supervise;
 pub mod tail;
@@ -72,6 +74,9 @@ pub fn run() {
             state::list_pages,
             state::take_saved_pages,
             state::open_page,
+            state::open_service_page,
+            state::get_page_config,
+            state::reveal_page_header,
             state::close_page,
             state::activate_page,
             state::set_page_bounds,

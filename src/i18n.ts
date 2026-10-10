@@ -40,6 +40,7 @@ export const zh = {
   "tabs.loading": "加载中",
   "tabs.activate": "激活此标签",
   "tabs.urlInvalid": "请输入 http:// 或 https:// 开头的地址。",
+  "tabs.needsHeaders": "该页面可能需要请求头，检查服务的 page.headers 配置。",
 
   "table.service": "服务",
   "table.port": "端口",
@@ -75,6 +76,8 @@ export const zh = {
   "action.copied": "已复制",
   "action.close": "关闭",
   "action.follow": "跟随最新",
+  "action.show": "显示",
+  "action.hide": "隐藏",
 
   "state.stopped": "已停止",
   "state.starting": "启动中",
@@ -126,6 +129,12 @@ export const zh = {
   "drawer.logSourceFile": "文件：{path}",
   "drawer.logSourceFileMissing": "未配置日志文件路径，日志面板不会有输出。",
   "drawer.logSourceHint": "进程输出只能抓取由本应用启动的进程；外部进程请改用文件跟踪。",
+  "drawer.page": "页面",
+  "drawer.pageUrl": "生效地址",
+  "drawer.pageTitle": "标签标题",
+  "drawer.pageHeaders": "请求头",
+  "drawer.pageHeadersEmpty": "未配置请求头。",
+  "drawer.pageExternalWarning": "该页面不是回环地址：配置的请求头会发给外部主机。",
 
   "service.addTitle": "新增服务",
   "service.editTitle": "编辑服务",
@@ -161,6 +170,29 @@ export const zh = {
   "service.logPathRequired": "文件跟踪需要填写日志文件路径。",
   "service.logEncoding": "编码",
   "service.logEncodingHint": "按所选编码解码，默认 UTF-8。",
+  "service.page": "页面",
+  "service.pageHint":
+    "用「打开页面」或双击服务行打开标签时，PortLens 会为页面地址注入下面配置的请求头。",
+  "service.pageUrl": "页面地址",
+  "service.pageUrlPlaceholder": "留空 = http://127.0.0.1:{port}/",
+  "service.pageUrlInvalid": "页面地址必须是合法的 http:// 或 https:// 地址。",
+  "service.pageTitle": "标签标题",
+  "service.pageTitlePlaceholder": "留空 = 服务名",
+  "service.pageHeaders": "请求头",
+  "service.pageHeadersHint":
+    "值可写明文，也可用 ${env:NAME} 读环境变量或 ${file:PATH:KEY} 读文件取值，推荐后两种以免密钥进入清单。示例：${env:STZBMCP_TOKEN}",
+  "service.pageHeadersEmpty": "还没有请求头。",
+  "service.pageHeadersAdd": "添加请求头",
+  "service.pageHeadersLoadFailed":
+    "读取已配置的请求头失败（明文接口不可用）。为避免把掩码写回配置，请重试或取消。",
+  "service.pageHeadersRetry": "重试",
+  "service.pageExternalWarning": "页面地址不是回环地址：配置的请求头会原样发给 {host}。",
+  "service.headerName": "头名",
+  "service.headerValue": "头值",
+  "service.headerNameRequired": "该行有头值但没有头名，请填写头名或删除该行。",
+  "service.headerNameInvalid": "头名只能包含 RFC 7230 记号字符（不能有空格或冒号）。",
+  "service.headerNameDuplicate": "请求头「{name}」重复了。",
+  "service.headerProtected": "「{name}」是受保护请求头，浏览器不允许注入，请删除该行。",
   "service.deleteTitle": "删除服务？",
   "service.deleteBody": "将删除「{name}」并从清单移除。若该服务由本应用托管，会先强制停止其进程树。",
 
@@ -258,6 +290,7 @@ export const en: Record<I18nKey, string> = {
   "tabs.loading": "Loading",
   "tabs.activate": "Activate this tab",
   "tabs.urlInvalid": "Enter an address starting with http:// or https://.",
+  "tabs.needsHeaders": "This page may need request headers; check the service's page.headers configuration.",
 
   "table.service": "Service",
   "table.port": "Port",
@@ -293,6 +326,8 @@ export const en: Record<I18nKey, string> = {
   "action.copied": "Copied",
   "action.close": "Close",
   "action.follow": "Follow",
+  "action.show": "Show",
+  "action.hide": "Hide",
 
   "state.stopped": "Stopped",
   "state.starting": "Starting",
@@ -345,6 +380,13 @@ export const en: Record<I18nKey, string> = {
   "drawer.logSourceFileMissing": "No log file path configured, so the log panel stays empty.",
   "drawer.logSourceHint":
     "Process output can only capture processes started by this app; use file tailing for external ones.",
+  "drawer.page": "Page",
+  "drawer.pageUrl": "Effective URL",
+  "drawer.pageTitle": "Tab title",
+  "drawer.pageHeaders": "Request headers",
+  "drawer.pageHeadersEmpty": "No request headers configured.",
+  "drawer.pageExternalWarning":
+    "This page is not loopback: the configured headers are sent to an external host.",
 
   "service.addTitle": "New service",
   "service.editTitle": "Edit service",
@@ -380,6 +422,30 @@ export const en: Record<I18nKey, string> = {
   "service.logPathRequired": "File tailing needs a log file path.",
   "service.logEncoding": "Encoding",
   "service.logEncodingHint": "Bytes are decoded with this encoding; UTF-8 by default.",
+  "service.page": "Page",
+  "service.pageHint":
+    "PortLens injects the headers below for the page address when this service's page is opened from \"Open page\" or by double-clicking its row.",
+  "service.pageUrl": "Page address",
+  "service.pageUrlPlaceholder": "Empty = http://127.0.0.1:{port}/",
+  "service.pageUrlInvalid": "The page address must be a valid http:// or https:// URL.",
+  "service.pageTitle": "Tab title",
+  "service.pageTitlePlaceholder": "Empty = service name",
+  "service.pageHeaders": "Request headers",
+  "service.pageHeadersHint":
+    "A value can be literal, read from an environment variable with ${env:NAME}, or from a file with ${file:PATH:KEY}; prefer the last two so secrets stay out of the manifest. Example: ${env:STZBMCP_TOKEN}",
+  "service.pageHeadersEmpty": "No headers yet.",
+  "service.pageHeadersAdd": "Add header",
+  "service.pageHeadersLoadFailed":
+    "Could not read the configured headers (the plaintext command failed). Retry or cancel so masked values are never written back.",
+  "service.pageHeadersRetry": "Retry",
+  "service.pageExternalWarning":
+    "The page address is not loopback: the configured headers are sent to {host} as-is.",
+  "service.headerName": "Header name",
+  "service.headerValue": "Header value",
+  "service.headerNameRequired": "This row has a value but no name; enter a name or remove the row.",
+  "service.headerNameInvalid": "A header name may only contain RFC 7230 token characters (no spaces or colons).",
+  "service.headerNameDuplicate": "Header \"{name}\" is declared twice.",
+  "service.headerProtected": "\"{name}\" is a protected header, so the browser will not let it be injected; remove the row.",
   "service.deleteTitle": "Delete service?",
   "service.deleteBody":
     "Removes \"{name}\" from the manifest. If this app supervises it, the process tree is force stopped first.",

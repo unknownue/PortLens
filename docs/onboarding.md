@@ -42,6 +42,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\scan-service.ps1 -Path
 | 3 定启动命令 | `commandCandidates` 优先级：p1 `package.json` 的 dev/start/serve 脚本 → p2 `Makefile` 目标 → p3 目录里的启动脚本（`host*/serve*/start*/run*/dev*`）→ p4 README 里的运行示例 | p1/p2/p3 可直接用；只有 p4 时要回读 README 上下文，确认那是**服务本身**而不是客户端/测试命令 |
 | 4 选探针 | 有 `/health`、`/healthz`、`/status` 之类的稳定无鉴权路径 → `http`；否则 `tcp` | http 探针只认 2xx/3xx：目标要鉴权（401/403）或根路径返回 404 的服务，一律用 `tcp`（例：`dsh web` 的 `/` 返回 401 → 用 tcp） |
 | 5 定日志来源 | 该服务自己写日志文件 → `logSource.type = "file"`，路径取最新那个日志文件，按日期切分的用通配（`app-*.log`）；中文 Windows 控制台日志多半是 `gbk` | 拿不到日志文件、且服务由 PortLens 启动 → 用默认 `process`（stdout/stderr 管道）；**外部**进程没有日志文件就没有日志可看（Windows 抓不到别人 stdout），要在结论里说明 |
+| 6 需要鉴权？ | 用 `curl`/`Invoke-WebRequest` 试一次目标路径：401/403 或返回一行错误 JSON 就说明要请求头 → 从服务端源码/文档里找出头名与 token，配 `page.url` + `page.headers`（值用 `${env:NAME}` 或 `${file:PATH:KEY}`，不要写明文） | 头名取值要能在服务端校验代码里找到（例：`host/stzbmcp_host.ps1` 里查 `X-STZBMCP-Token`）；token 从 `.ws.env` 之类的地方引用 |
 
 ## 三、字段决策表
 
@@ -59,6 +60,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\scan-service.ps1 -Path
 | `logSource.type` | `process`（本工具拉起的进程输出）/ `file`（tail 日志文件） | `process` |
 | `logSource.path` | 日志文件，支持 `*` `?`（每拍取最新匹配，天然支持轮转） | 无 |
 | `logSource.encoding` | `utf-8` / `gbk` / `gb18030` / `utf-16le` / `utf-16be` / `shift_jis` / `big5` | `utf-8` |
+| `page.url` | 标签打开的地址（只支持 http(s)） | `http://127.0.0.1:<port>/` |
+| `page.headers` | 打开该页面的请求头；值可用 `${env:NAME}` / `${file:PATH:KEY}` | 空 |
+| `page.title` | 标签标题 | 服务名 |
 
 ## 四、落地方式
 
@@ -88,6 +92,10 @@ $manifest | Test-Json -Schema $schema -ErrorAction Stop   # 失败会抛出具�
    命令行等价检查（E2E 脚本同一套 API）：
    ```powershell
    node tools\e2e-logs.mjs      # 会拉起打包 exe + 跑一个外部写日志的服务，8 项断言
+   ```
+5. 配了 `page` 时：标签里看到的是**真实页面/JSON**，不是一行 403；标签上不该出现「可能需要请求头」的警示。
+   ```powershell
+   node tools\e2e-headers.mjs   # 25 项：文档/子资源/fetch/XHR 都带头、跨 origin 不泄漏、403 提示、明文不落盘
    ```
 5. 把这条记录喂给 `tools\e2e-ports.mjs` 那套语义（启停 + 端口释放）如果用户要求托管：启动 → 状态 healthy → 停止 → 端口释放。
 

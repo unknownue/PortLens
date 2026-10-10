@@ -27,6 +27,27 @@ PortLens 的「页面标签」用来在同一个窗口里打开被监控服务�
 - 没有配置 `dangerousRemoteDomainIpcAccess`，`withGlobalTauri` 也是 false。
 - 主界面 CSP 收紧到 `default-src 'self'`（`style-src` 放行 `unsafe-inline`，Radix 定位需要内联样式）；子 WebView 用目标页自己的 CSP。
 
+## 请求头注入（鉴权服务）
+
+需要 token 的本地服务不能在标签里裸开。做法：服务声明 `page.url` 与 `page.headers`，PortLens 在加载该页面时注入。
+
+- **拦截点**：WebView2 的 `WebResourceRequested`。过滤器先限定到 `page.url` 的 origin（`scheme://host:port/*`），
+  处理函数里再校验一次请求 URL 的 origin，然后 `SetHeader` 把配置的头追加上去 —— 顶层文档、同源子资源、`fetch`/`XHR`、刷新全覆盖；
+  跨 origin 的请求（含第三方 CDN、外部跳转）**一个头都不带**。
+- **时序**：拦截器必须在首个请求之前注册，而 `WebviewBuilder` 没有「创建后、导航前」的回调。
+  所以标签先以 `about:blank` 建视图 → `with_webview` 里同步注册过滤器与处理函数 → 再 `navigate()` 到 `page.url`。
+  `about:blank` 的那一跳不会产生 `page-load` 事件，界面看不到闪烁。
+- **失败提示**：`ICoreWebView2_2::WebResourceResponseReceived` 只看顶层文档（用 `NavigationStarting` 跟踪的当前地址比对），
+  401/403 时发 `page-status` 事件，标签条上给「该页面可能需要请求头」的可点提示。没配 headers 也会提示。
+- **凭据**：值支持 `${env:NAME}` / `${file:PATH:KEY}`，清单里不落明文；列表只显示 `••••••`，
+  明文只在编辑对话框回填与「显示/复制」时按需取；`ui.json` 不写 headers，重启恢复标签时从清单现取（按 `page.url` 匹配服务）。
+- **受保护头**：`Host`、`Content-Length`、`Connection`、`Transfer-Encoding` 等由 HTTP 栈自己管理的头会被拒绝保存，头名/值含控制字符（换行注入）同样拒绝。
+- **不做的事**：不注入 Cookie、不代填表单、不信任自签证书、不给页面标签任何 IPC 权限。
+
+实测（`tools/e2e-headers.mjs`，25 项）：同源 `<script>`/`fetch`/`XHR` 都带上头，跨 origin 请求 0 泄漏，
+无头配置时 403 触发提示，`ui.json` / `list_pages` / `get_services` 中检索不到明文；
+真实服务验收见 `tmp/acceptance-stzbmcp.mjs`（stzbmcp 宿主服务 `/status` 从 403 变成完整 JSON）。
+
 ## 持久化与恢复
 
 `%LOCALAPPDATA%\PortLens\ui.json`：

@@ -42,6 +42,24 @@
         "encoding": { "enum": ["utf-8", "gbk", "gb18030", "utf-16le", "utf-16be", "shift_jis", "big5", null], "default": "utf-8" }
       }
     },
+    "page": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Page tab config: which URL to open and which request headers to inject for that origin",
+      "properties": {
+        "url": { "type": ["string", "null"], "description": "http(s) only; defaults to http://127.0.0.1:<port>/" },
+        "title": { "type": ["string", "null"], "description": "tab title; defaults to the service name" },
+        "headers": {
+          "type": "object",
+          "description": "header name -> value; values may reference ${env:NAME} or ${file:PATH:KEY}",
+          "propertyNames": {
+            "pattern": "^[^:\\s][^:]*$",
+            "not": { "enum": ["host", "Host", "HOST", "content-length", "Content-Length", "connection", "Connection", "transfer-encoding", "Transfer-Encoding", "upgrade", "Upgrade", "keep-alive", "Keep-Alive", "te", "TE", "trailer", "Trailer", "expect", "Expect", "via", "Via", "proxy-connection", "Proxy-Connection", "proxy-authorization", "Proxy-Authorization", "http2-settings", "HTTP2-Settings"] }
+          },
+          "additionalProperties": { "type": "string", "pattern": "^[^\\u0000-\\u001f\\u007f]*$" }
+        }
+      }
+    },
     "service": {
       "type": "object",
       "additionalProperties": false,
@@ -53,7 +71,8 @@
         "command": { "type": ["string", "null"], "description": "run through cmd /C; null or empty = monitor only" },
         "cwd": { "type": ["string", "null"] },
         "health": { "$ref": "#/$defs/health" },
-        "logSource": { "$ref": "#/$defs/logSource" }
+        "logSource": { "$ref": "#/$defs/logSource" },
+        "page": { "$ref": "#/$defs/page" }
       },
       "allOf": [
         {
@@ -67,6 +86,10 @@
         {
           "if": { "properties": { "logSource": { "properties": { "type": { "const": "file" } }, "required": ["type"] } }, "required": ["logSource"] },
           "then": { "properties": { "logSource": { "required": ["path"], "properties": { "path": { "type": "string", "minLength": 1 } } } } }
+        },
+        {
+          "if": { "properties": { "page": { "properties": { "url": { "type": "string", "minLength": 1 } }, "required": ["url"] } }, "required": ["page"] },
+          "then": { "properties": { "page": { "properties": { "url": { "type": "string", "pattern": "^https?://" } } } } }
         }
       ]
     }

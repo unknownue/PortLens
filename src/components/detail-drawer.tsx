@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { Eraser, ScrollText, X } from "lucide-react";
+import { Copy, Eraser, Eye, EyeOff, ScrollText, TriangleAlert, X } from "lucide-react";
+import { toast } from "sonner";
 
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
@@ -8,10 +9,12 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatClock, formatDateTime, formatLatency, formatUptime } from "@/format";
-import { api } from "@/lib/api";
+import { api, errorText } from "@/lib/api";
+import { copyText } from "@/lib/clipboard";
 import { useT } from "@/lib/i18n-react";
 import { cn } from "@/lib/utils";
-import { asLogSource, type LogSourceType, type ServiceView } from "@/types";
+import { maskedHeaderRows } from "@/page";
+import { asLogSource, asPageView, type LogSourceType, type ServiceView } from "@/types";
 
 const LOG_LIMIT = 300;
 const LOG_POLL_MS = 1000;
@@ -39,7 +42,12 @@ export function DetailDrawer({
   const id = service?.id ?? null;
   const [lines, setLines] = useState<string[]>([]);
   const [follow, setFollow] = useState(true);
+  // Plaintext of the headers the user explicitly revealed; never logged, never persisted.
+  const [revealed, setRevealed] = useState<Record<string, string>>({});
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  // Bumped whenever the drawer closes or switches service: a reveal that resolves later
+  // must not put the plaintext back on screen (or into state).
+  const revealSeq = useRef(0);
   // Lines that arrive while `get_service_logs` is in flight are already covered by
   // that response, so the sink is muted for the duration instead of double-appending.
   const inflight = useRef(false);
@@ -47,6 +55,55 @@ export function DetailDrawer({
   useEffect(() => {
     setLines([]);
   }, [id]);
+
+  useEffect(() => {
+    revealSeq.current += 1;
+    setRevealed({});
+  }, [id, open]);
+
+  const fail = (error: unknown) => toast.error(t("toast.failed", { message: errorText(error) }));
+
+  const revealHeader = async (name: string) => {
+    if (!id) return;
+    if (revealed[name] !== undefined) {
+      setRevealed((prev) => {
+        const next = { ...prev };
+        delete next[name];
+        return next;
+      });
+      return;
+    }
+    const seq = revealSeq.current;
+    try {
+      const value = await api.revealPageHeader(id, name);
+      if (seq !== revealSeq.current) return;
+      setRevealed((prev) => ({ ...prev, [name]: value }));
+    } catch (error) {
+      fail(error);
+    }
+  };
+
+  const copyHeader = async (name: string) => {
+    if (!id) return;
+    const seq = revealSeq.current;
+    try {
+      const value = await api.revealPageHeader(id, name);
+      const ok = await copyText(value);
+      // The plaintext goes straight to the clipboard and is dropped again.
+      if (seq === revealSeq.current) {
+        setRevealed((prev) => {
+          if (prev[name] === undefined) return prev;
+          const next = { ...prev };
+          delete next[name];
+          return next;
+        });
+      }
+      if (ok) toast.success(t("action.copied"));
+      else toast.error(t("toast.copyFailed", { message: name }));
+    } catch (error) {
+      fail(error);
+    }
+  };
 
   useEffect(() => {
     if (!open || !id) return;
@@ -104,6 +161,9 @@ export function DetailDrawer({
     logSource.type === "file" && logPath
       ? t("drawer.logSourceFile", { path: logPath })
       : t(logSourceLabelKey(logSource.type));
+  // Masked rows only: `page.headers[].masked`, or a temporary reveal on demand.
+  const page = asPageView(service?.page, service?.port ?? 0);
+  const pageHeaders = maskedHeaderRows(service?.page);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -258,6 +318,70 @@ export function DetailDrawer({
                     <Row label={t("service.logEncoding")} value={logSource.encoding ?? "utf-8"} mono />
                   ) : null}
                 </dl>
+
+                <div className="mt-3 flex flex-col gap-1.5">
+                  <Label className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                    {t("drawer.page")}
+                  </Label>
+                  <dl className="grid grid-cols-1 gap-y-2 text-[12px]">
+                    <Row label={t("drawer.pageUrl")} value={page.url} mono />
+                    <Row label={t("drawer.pageTitle")} value={page.title || service.name} />
+                  </dl>
+                  <Label className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                    {t("drawer.pageHeaders")}
+                  </Label>
+                  {page.externalHost ? (
+                    <p className="flex items-start gap-1.5 rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-[11px] text-amber-700 dark:text-amber-300">
+                      <TriangleAlert className="mt-px size-3.5 shrink-0" />
+                      {t("drawer.pageExternalWarning")}
+                    </p>
+                  ) : null}
+                  {pageHeaders.length === 0 ? (
+                    <p className="text-[11px] text-muted-foreground">{t("drawer.pageHeadersEmpty")}</p>
+                  ) : (
+                    <ul className="flex flex-col gap-1">
+                      {pageHeaders.map((header) => {
+                        const plain = revealed[header.name];
+                        return (
+                          <li
+                            key={header.name}
+                            className="flex items-center gap-2 rounded-md border border-border bg-muted/20 px-2 py-1"
+                          >
+                            <span className="min-w-24 shrink-0 font-mono text-[11px]">
+                              {header.name}
+                            </span>
+                            <span
+                              className={cn(
+                                "min-w-0 flex-1 truncate font-mono text-[11px]",
+                                plain === undefined ? "text-muted-foreground" : "text-foreground",
+                              )}
+                            >
+                              {plain === undefined ? header.masked : plain}
+                            </span>
+                            <Button
+                              size="icon-xs"
+                              variant="ghost"
+                              title={plain === undefined ? t("action.show") : t("action.hide")}
+                              aria-label={plain === undefined ? t("action.show") : t("action.hide")}
+                              onClick={() => void revealHeader(header.name)}
+                            >
+                              {plain === undefined ? <Eye /> : <EyeOff />}
+                            </Button>
+                            <Button
+                              size="icon-xs"
+                              variant="ghost"
+                              title={t("action.copy")}
+                              aria-label={t("action.copy")}
+                              onClick={() => void copyHeader(header.name)}
+                            >
+                              <Copy />
+                            </Button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </div>
               </TabsContent>
             </Tabs>
           </>

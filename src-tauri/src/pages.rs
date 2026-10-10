@@ -7,6 +7,9 @@ use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, WebviewBu
 
 pub const MAIN_WINDOW: &str = "main";
 
+/// 建视图时用的占位地址（拦截器注册完立刻导航到真实地址）。
+const BLANK_URL: &str = "about:blank";
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PageTab {
     pub label: String,
@@ -67,30 +70,49 @@ pub fn next_label(existing: &[String]) -> String {
     }
 }
 
-pub fn open(app: &AppHandle, label: &str, url: &str, rect: WindowRect) -> Result<(), String> {
+/// 建一个页面标签要用的东西：目标地址 + 要注入的请求头（已解析）。
+#[derive(Clone, Debug, Default)]
+pub struct PageTarget {
+    pub url: String,
+    pub headers: Vec<(String, String)>,
+}
+
+/// 先用 `about:blank` 建视图，装好请求头拦截器再导航到目标地址。
+///
+/// 顺序是硬要求：拦截器必须在首个请求发出前注册，而 `WebviewBuilder` 没有「创建后、导航前」的回调，
+/// 所以用一个空白页兜住这段窗口期（`page-load` 事件会过滤掉 `about:blank`，界面看不到这一跳）。
+pub fn open(app: &AppHandle, label: &str, target: &PageTarget, rect: WindowRect) -> Result<(), String> {
     let window = app.get_window(MAIN_WINDOW).ok_or_else(|| "未找到主窗口".to_string())?;
-    let parsed = tauri::Url::parse(url).map_err(|e| format!("URL 无效 {url}: {e}"))?;
+    let destination = tauri::Url::parse(&target.url).map_err(|e| format!("URL 无效 {}: {e}", target.url))?;
+    let blank = tauri::Url::parse(BLANK_URL).map_err(|e| e.to_string())?;
 
     let handle = app.clone();
     let label_owned = label.to_string();
-    let builder = WebviewBuilder::new(label, WebviewUrl::External(parsed)).on_page_load(move |_webview, payload| {
+    let builder = WebviewBuilder::new(label, WebviewUrl::External(blank)).on_page_load(move |_webview, payload| {
+        let url = payload.url().to_string();
+        if url == BLANK_URL {
+            return;
+        }
         let phase = match payload.event() {
             PageLoadEvent::Started => "started",
             PageLoadEvent::Finished => "finished",
         };
-        let _ = handle.emit(
-            "page-load",
-            serde_json::json!({ "label": label_owned, "url": payload.url().to_string(), "phase": phase }),
-        );
+        let _ = handle.emit("page-load", serde_json::json!({ "label": label_owned, "url": url, "phase": phase }));
     });
 
-    window
+    let webview = window
         .add_child(
             builder,
             LogicalPosition::new(rect.x as f64, rect.y as f64),
             LogicalSize::new(rect.w.max(1) as f64, rect.h.max(1) as f64),
         )
         .map_err(|e| format!("创建页面视图失败: {e}"))?;
+
+    // 拦截器先装好（同步等待主线程完成注册），再导航。
+    crate::inject::install(app, label, &webview, &target.url, target.headers.clone())?;
+    webview
+        .navigate(destination)
+        .map_err(|e| format!("导航到 {} 失败: {e}", target.url))?;
     Ok(())
 }
 

@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState } from "react";
-import { Gauge, LoaderCircle, Plus, X } from "lucide-react";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { Gauge, LoaderCircle, Plus, TriangleAlert, X } from "lucide-react";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useT } from "@/lib/i18n-react";
 import { cn } from "@/lib/utils";
-import type { PageTab } from "@/types";
+import type { PageLoadPayload, PageStatusPayload, PageTab } from "@/types";
 
 type TabStripProps = {
   tabs: PageTab[];
@@ -16,15 +19,79 @@ type TabStripProps = {
   onNew: () => void;
 };
 
+/** Document responses that mean "you are missing credentials / headers". */
+function needsHeaders(status: number): boolean {
+  return status === 401 || status === 403;
+}
+
 export function TabStrip({ tabs, active, loading, onSelect, onClose, onRename, onNew }: TabStripProps) {
   const t = useT();
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
+  /** label -> status of the last 401/403 response; cleared on reload or a new status. */
+  const [headerWarn, setHeaderWarn] = useState<Record<string, number>>({});
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (editing) inputRef.current?.select();
   }, [editing]);
+
+  // `page-status` only ever carries a label/url/status triple, never header values.
+  useEffect(() => {
+    let disposed = false;
+    const unlisten: UnlistenFn[] = [];
+
+    const track = async (pending: Promise<UnlistenFn>) => {
+      try {
+        const off = await pending;
+        if (disposed) off();
+        else unlisten.push(off);
+      } catch {
+        // Event bridge unavailable: tabs still render, the warning just never appears.
+      }
+    };
+
+    void track(
+      listen<PageStatusPayload>("page-status", (event) => {
+        const { label, status } = event.payload;
+        setHeaderWarn((prev) => {
+          if (needsHeaders(status)) {
+            return prev[label] === status ? prev : { ...prev, [label]: status };
+          }
+          if (prev[label] === undefined) return prev;
+          const next = { ...prev };
+          delete next[label];
+          return next;
+        });
+      }),
+    );
+    // A fresh load clears the warning: the next 401/403 will raise it again.
+    void track(
+      listen<PageLoadPayload>("page-load", (event) => {
+        const { label } = event.payload;
+        setHeaderWarn((prev) => {
+          if (prev[label] === undefined) return prev;
+          const next = { ...prev };
+          delete next[label];
+          return next;
+        });
+      }),
+    );
+
+    return () => {
+      disposed = true;
+      for (const off of unlisten) off();
+    };
+  }, []);
+
+  // Drop warnings of labels that no longer exist.
+  useEffect(() => {
+    setHeaderWarn((prev) => {
+      const labels = new Set(tabs.map((tab) => tab.label));
+      const kept = Object.entries(prev).filter(([label]) => labels.has(label));
+      return kept.length === Object.keys(prev).length ? prev : Object.fromEntries(kept);
+    });
+  }, [tabs]);
 
   const commit = (label: string) => {
     const title = draft.trim();
@@ -53,6 +120,7 @@ export function TabStrip({ tabs, active, loading, onSelect, onClose, onRename, o
         {tabs.map((tab) => {
           const isActive = tab.label === active;
           const isLoading = loading[tab.label] === true;
+          const warnStatus = headerWarn[tab.label];
           return (
             <div
               key={tab.label}
@@ -97,6 +165,26 @@ export function TabStrip({ tabs, active, loading, onSelect, onClose, onRename, o
                   {tab.title}
                 </button>
               )}
+              {warnStatus !== undefined ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      title={`HTTP ${warnStatus} — ${t("tabs.needsHeaders")}`}
+                      aria-label={t("tabs.needsHeaders")}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onSelect(tab.label);
+                        toast.message(t("tabs.needsHeaders"));
+                      }}
+                      className="shrink-0 text-amber-600 dark:text-amber-400"
+                    >
+                      <TriangleAlert className="size-3.5" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>{`HTTP ${warnStatus} — ${t("tabs.needsHeaders")}`}</TooltipContent>
+                </Tooltip>
+              ) : null}
               <Button
                 variant="ghost"
                 size="icon-xs"
