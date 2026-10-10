@@ -122,6 +122,10 @@ export const zh = {
   "drawer.id": "服务 ID",
   "drawer.logsEmpty": "暂无日志输出。",
   "drawer.clearLogs": "清空日志",
+  "drawer.logSource": "日志来源",
+  "drawer.logSourceFile": "文件：{path}",
+  "drawer.logSourceFileMissing": "未配置日志文件路径，日志面板不会有输出。",
+  "drawer.logSourceHint": "进程输出只能抓取由本应用启动的进程；外部进程请改用文件跟踪。",
 
   "service.addTitle": "新增服务",
   "service.editTitle": "编辑服务",
@@ -148,6 +152,15 @@ export const zh = {
   "service.timeoutInvalid": "超时必须是不小于 {min} 的整数（ms）。",
   "service.thresholdInvalid": "失败阈值必须是不小于 {min} 的整数。",
   "service.riskyWarning": "端口 {port} 落在高风险段，可能被系统抢占。",
+  "service.logSource": "日志来源",
+  "service.logSourceHint":
+    "进程输出 = 抓取本应用启动进程的 stdout/stderr；文件跟踪 = 跟踪指定的日志文件（路径支持 * 与 ? 通配，取最新修改的文件）。",
+  "service.logPath": "日志文件路径",
+  "service.logPathPlaceholder": "例如：D:\\logs\\app-*.log",
+  "service.logPathBrowse": "浏览…",
+  "service.logPathRequired": "文件跟踪需要填写日志文件路径。",
+  "service.logEncoding": "编码",
+  "service.logEncodingHint": "按所选编码解码，默认 UTF-8。",
   "service.deleteTitle": "删除服务？",
   "service.deleteBody": "将删除「{name}」并从清单移除。若该服务由本应用托管，会先强制停止其进程树。",
 
@@ -155,6 +168,9 @@ export const zh = {
   "probe.http": "HTTP 请求",
   "probe.exec": "执行命令",
   "probe.none": "不探测",
+
+  "logSource.process": "进程输出",
+  "logSource.file": "文件跟踪",
 
   "settings.title": "设置",
   "settings.pollInterval": "轮询间隔 (ms)",
@@ -324,6 +340,11 @@ export const en: Record<I18nKey, string> = {
   "drawer.id": "Service ID",
   "drawer.logsEmpty": "No log output yet.",
   "drawer.clearLogs": "Clear logs",
+  "drawer.logSource": "Log source",
+  "drawer.logSourceFile": "File: {path}",
+  "drawer.logSourceFileMissing": "No log file path configured, so the log panel stays empty.",
+  "drawer.logSourceHint":
+    "Process output can only capture processes started by this app; use file tailing for external ones.",
 
   "service.addTitle": "New service",
   "service.editTitle": "Edit service",
@@ -350,6 +371,15 @@ export const en: Record<I18nKey, string> = {
   "service.timeoutInvalid": "Timeout must be an integer of at least {min} ms.",
   "service.thresholdInvalid": "Failure threshold must be an integer of at least {min}.",
   "service.riskyWarning": "Port {port} is in a risky range and may be taken by the system.",
+  "service.logSource": "Log source",
+  "service.logSourceHint":
+    "Process output captures the stdout/stderr of processes this app starts; file tailing follows a log file (path supports * and ? wildcards and picks the newest match).",
+  "service.logPath": "Log file path",
+  "service.logPathPlaceholder": "e.g. D:\\logs\\app-*.log",
+  "service.logPathBrowse": "Browse…",
+  "service.logPathRequired": "File tailing needs a log file path.",
+  "service.logEncoding": "Encoding",
+  "service.logEncodingHint": "Bytes are decoded with this encoding; UTF-8 by default.",
   "service.deleteTitle": "Delete service?",
   "service.deleteBody":
     "Removes \"{name}\" from the manifest. If this app supervises it, the process tree is force stopped first.",
@@ -358,6 +388,9 @@ export const en: Record<I18nKey, string> = {
   "probe.http": "HTTP request",
   "probe.exec": "Run command",
   "probe.none": "No probe",
+
+  "logSource.process": "Process output",
+  "logSource.file": "File tailing",
 
   "settings.title": "Settings",
   "settings.pollInterval": "Poll interval (ms)",

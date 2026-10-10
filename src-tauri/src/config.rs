@@ -26,6 +26,12 @@ fn default_lang() -> String {
 fn default_theme() -> String {
     "dark".into()
 }
+fn default_log_type() -> String {
+    "process".into()
+}
+fn default_encoding() -> String {
+    "utf-8".into()
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct HealthConfig {
@@ -56,6 +62,37 @@ impl Default for HealthConfig {
     }
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct LogSource {
+    #[serde(rename = "type", default = "default_log_type")]
+    pub kind: String,
+    #[serde(default)]
+    pub path: Option<String>,
+    #[serde(default)]
+    pub encoding: Option<String>,
+}
+
+impl Default for LogSource {
+    fn default() -> Self {
+        Self { kind: default_log_type(), path: None, encoding: None }
+    }
+}
+
+impl LogSource {
+    /// 是否为文件跟踪来源（`type = "file"` 且给了路径）。
+    pub fn file_pattern(&self) -> Option<&str> {
+        if self.kind != "file" {
+            return None;
+        }
+        self.path.as_deref().map(str::trim).filter(|p| !p.is_empty())
+    }
+
+    pub fn encoding_label(&self) -> &str {
+        self.encoding.as_deref().map(str::trim).filter(|e| !e.is_empty()).unwrap_or("utf-8")
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ServiceDef {
     pub id: String,
@@ -67,6 +104,8 @@ pub struct ServiceDef {
     pub cwd: Option<String>,
     #[serde(default)]
     pub health: HealthConfig,
+    #[serde(default, rename = "logSource")]
+    pub log_source: LogSource,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -190,6 +229,20 @@ pub fn normalize(m: &mut Manifest) {
         if s.health.failure_threshold == 0 {
             s.health.failure_threshold = default_failure();
         }
+        s.log_source.kind = s.log_source.kind.trim().to_ascii_lowercase();
+        if s.log_source.kind.is_empty() {
+            s.log_source.kind = default_log_type();
+        }
+        s.log_source.path = s.log_source.path.take().map(|p| p.trim().to_string()).filter(|p| !p.is_empty());
+        s.log_source.encoding = s
+            .log_source
+            .encoding
+            .take()
+            .map(|e| e.trim().to_ascii_lowercase())
+            .filter(|e| !e.is_empty());
+        if s.log_source.kind == "file" && s.log_source.encoding.is_none() {
+            s.log_source.encoding = Some(default_encoding());
+        }
     }
 }
 
@@ -226,6 +279,22 @@ pub fn validate(m: &Manifest) -> Result<(), String> {
             }
             other => return Err(format!("服务 {} 的探针类型不支持: {other}", s.id)),
         }
+        match s.log_source.kind.as_str() {
+            "process" => {}
+            "file" => {
+                if s.log_source.file_pattern().is_none() {
+                    return Err(format!("服务 {} 的日志来源是文件跟踪，但没填路径", s.id));
+                }
+                if encoding_rs::Encoding::for_label(s.log_source.encoding_label().as_bytes()).is_none() {
+                    return Err(format!(
+                        "服务 {} 的日志编码不支持: {}",
+                        s.id,
+                        s.log_source.encoding_label()
+                    ));
+                }
+            }
+            other => return Err(format!("服务 {} 的日志来源类型不支持: {other}", s.id)),
+        }
     }
     Ok(())
 }
@@ -261,7 +330,15 @@ mod tests {
     use super::*;
 
     fn def(id: &str, port: u16) -> ServiceDef {
-        ServiceDef { id: id.into(), name: id.into(), port, command: None, cwd: None, health: HealthConfig::default() }
+        ServiceDef {
+            id: id.into(),
+            name: id.into(),
+            port,
+            command: None,
+            cwd: None,
+            health: HealthConfig::default(),
+            log_source: LogSource::default(),
+        }
     }
 
     #[test]
@@ -299,6 +376,55 @@ mod tests {
         assert_eq!(m.services[0].health.interval_ms, 2000);
         assert_eq!(m.services[0].health.timeout_ms, 1000);
         assert_eq!(m.services[0].health.failure_threshold, 2);
+        assert_eq!(m.services[0].log_source.kind, "process");
+    }
+
+    #[test]
+    fn log_source_round_trip_and_validation() {
+        let mut m: Manifest = serde_json::from_str(
+            r#"{"services":[{"id":"a","name":"a","port":15001,
+                "logSource":{"type":"file","path":"  logs\\app.log  "}}]}"#,
+        )
+        .unwrap();
+        normalize(&mut m);
+        let source = &m.services[0].log_source;
+        assert_eq!(source.kind, "file");
+        assert_eq!(source.file_pattern(), Some("logs\\app.log"));
+        assert_eq!(source.encoding_label(), "utf-8");
+        assert!(validate(&m).is_ok());
+
+        // file 类型缺路径 -> 拒绝
+        let mut broken = m.clone();
+        broken.services[0].log_source.path = None;
+        assert!(validate(&broken).is_err());
+
+        // 未知类型 / 未知编码 -> 拒绝
+        let mut unknown_kind = m.clone();
+        unknown_kind.services[0].log_source.kind = "syslog".into();
+        assert!(validate(&unknown_kind).is_err());
+        let mut unknown_enc = m.clone();
+        unknown_enc.services[0].log_source.encoding = Some("klingon".into());
+        assert!(validate(&unknown_enc).is_err());
+
+        // gbk 是合法标签
+        let mut gbk = m.clone();
+        gbk.services[0].log_source.encoding = Some("gbk".into());
+        assert!(validate(&gbk).is_ok());
+    }
+
+    #[test]
+    fn log_source_serializes_camel_case() {
+        let mut m = Manifest::defaults();
+        m.services = vec![def("a", 15001)];
+        m.services[0].log_source = LogSource {
+            kind: "file".into(),
+            path: Some("C:\\logs\\a.log".into()),
+            encoding: Some("gbk".into()),
+        };
+        let text = serde_json::to_string(&m).unwrap();
+        assert!(text.contains("\"logSource\""), "{text}");
+        assert!(text.contains("\"type\":\"file\""), "{text}");
+        assert!(text.contains("\"encoding\":\"gbk\""), "{text}");
     }
 
     #[test]

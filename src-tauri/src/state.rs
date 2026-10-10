@@ -7,11 +7,12 @@ use parking_lot::Mutex;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 
-use crate::config::{self, HealthConfig, Manifest, ServiceDef, Settings};
+use crate::config::{self, HealthConfig, LogSource, Manifest, ServiceDef, Settings};
 use crate::health::{HealthMachine, ServiceStatus, State as ServiceState, Tick};
 use crate::logs::LogStore;
 use crate::pages::{self, PageTab, UiState, WindowRect};
 use crate::supervise::ServiceManager;
+use crate::tail::TailRegistry;
 use crate::{netsh, ports, probe, proc};
 
 pub struct AppState {
@@ -21,6 +22,8 @@ pub struct AppState {
     pub machines: Mutex<HashMap<String, HealthMachine>>,
     pub ui: Mutex<UiState>,
     pub probe_schedule: Mutex<HashMap<String, u64>>,
+    /// 文件日志跟随器（外部服务与自建服务共用）。
+    pub tails: Mutex<TailRegistry>,
     /// 最近一次观察到的退出码：`poll_exit` 只返回一次，这里粘住，让 Crashed 不抖成 Unknown。
     last_exit: Mutex<HashMap<String, i32>>,
     /// 用户主动停止的服务：标记后不再把随后的退出当成崩溃。启动时清除。
@@ -37,6 +40,7 @@ pub struct ServiceView {
     pub command: Option<String>,
     pub cwd: Option<String>,
     pub health: HealthConfig,
+    pub log_source: LogSource,
     pub status: ServiceStatus,
     pub risky: bool,
 }
@@ -87,6 +91,7 @@ impl AppState {
             machines: Mutex::new(machines),
             ui: Mutex::new(pages::load_ui()),
             probe_schedule: Mutex::new(HashMap::new()),
+            tails: Mutex::new(TailRegistry::new()),
             last_exit: Mutex::new(HashMap::new()),
             stop_requested: Mutex::new(HashSet::new()),
             port_env: Mutex::new(None),
@@ -138,6 +143,7 @@ impl AppState {
                     command: def.command.clone(),
                     cwd: def.cwd.clone(),
                     health: def.health.clone(),
+                    log_source: def.log_source.clone(),
                     status,
                     risky: netsh::is_risky(def.port, &env),
                 }
@@ -261,6 +267,15 @@ impl AppState {
 
         changed
     }
+
+    /// 按当前清单同步文件日志跟随器并读一次增量；返回新增行数。
+    /// 与进程输出共用 `LogStore`，monitor 之后统一按 `service-log` 事件发出去。
+    pub fn poll_file_logs(&self) -> usize {
+        let defs = self.manifest.lock().services.clone();
+        let mut tails = self.tails.lock();
+        tails.sync(&defs);
+        tails.poll_all(&self.logs)
+    }
 }
 
 impl Default for AppState {
@@ -299,6 +314,25 @@ fn normalize_def(mut def: ServiceDef) -> ServiceDef {
     }
     if def.cwd.as_deref().map(|c| c.trim().is_empty()).unwrap_or(true) {
         def.cwd = None;
+    }
+    def.log_source.kind = def.log_source.kind.trim().to_ascii_lowercase();
+    if def.log_source.kind.is_empty() {
+        def.log_source.kind = "process".into();
+    }
+    def.log_source.path = def
+        .log_source
+        .path
+        .take()
+        .map(|path| path.trim().to_string())
+        .filter(|path| !path.is_empty());
+    def.log_source.encoding = def
+        .log_source
+        .encoding
+        .take()
+        .map(|encoding| encoding.trim().to_ascii_lowercase())
+        .filter(|encoding| !encoding.is_empty());
+    if def.log_source.kind == "file" && def.log_source.encoding.is_none() {
+        def.log_source.encoding = Some("utf-8".into());
     }
     def
 }

@@ -210,3 +210,34 @@ type PageTab = { label: string; title: string; url: string };
 5. 优雅停止语义修正：`taskkill /T`（不带 `/F`）对控制台程序会直接失败；失败时不再白等 grace，立刻转 `/F` 强杀，只有强杀失败才向调用方返回错误。
 6. `lib.rs` 的模块声明改为 `pub mod`，供 `tests/supervise.rs` 集成测试直接使用。
 7. `supervise::start` 用 `CommandExt::raw_arg` 拼接 `cmd /C <用户命令>`：`arg()` 会按 C 运行时规则给内嵌引号加反斜杠，cmd.exe 不认，`node -e "..."` 这类命令会被拆坏。
+
+## 8. 日志来源 logSource（v0.2 新增）
+
+外部（非 PortLens 启动）进程的 stdout 抓不到（Windows 没有事后接管别人 stdout 的 API；控制台缓冲区实测对 ConPTY / 重定向进程无效）。
+因此服务可声明**日志文件来源**，由 PortLens tail-follow：
+
+```ts
+type LogSource = {
+  type: "process" | "file";   // 缺省 "process" = 抓到我们拉起的进程的 stdout/stderr
+  path?: string | null;       // type = "file" 时必填；支持 * 与 ? 通配（取最新修改的那个文件）
+  encoding?: string | null;   // 缺省 "utf-8"；可选 gbk / gb18030 / utf-16le / utf-16be / shift_jis / big5
+};
+
+type ServiceDef = {
+  id: string; name: string; port: number;
+  command?: string | null; cwd?: string | null;
+  health: HealthConfig;
+  logSource: LogSource;       // 新增，缺省 { type: "process" }
+};
+
+type ServiceView = ServiceDef & { status: ServiceStatus; risky: boolean };
+```
+
+语义（已实现，`src-tauri/src/tail.rs`）：
+
+- 首次挂上文件时先读**尾部最多 64 KiB**（≈`tail -n`，从下一个换行开始对齐），之后只读新增字节；文件被截断（长度回退）则从 0 重新读。
+- `path` 含 `*`/`?` 时按「目录 + 通配」每拍重新解析，取修改时间最新的匹配文件；路径变化视为轮转，新文件从头读。
+- 解码：按 `encoding` 指定的编码流式解码（跨读取边界的多字节字符由 `encoding_rs::Decoder` 兜住），`pending` 里保留未成行的尾巴，遇到 `\n` 才落一行。
+- 事件与进程日志共用一条通道：写入同一个 `LogStore` 环形缓冲（2000 行）→ `service-log` 事件 / `get_service_logs`。
+- 文件不存在时不报错，静默等待它出现（例如服务尚未启动）。
+

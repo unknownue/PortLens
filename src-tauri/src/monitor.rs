@@ -19,6 +19,8 @@ pub fn spawn(app: AppHandle, state: Arc<AppState>) {
             ticks += 1;
 
             let changed = state.tick();
+            // 文件日志来源：先读增量写进 LogStore，下面的 drain 会把它们一起发出去。
+            state.poll_file_logs();
             if !changed.is_empty() {
                 for status in changed.iter().filter(|s| s.state == ServiceState::Crashed) {
                     let _ = app.emit(

@@ -28,6 +28,9 @@ serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 parking_lot = "0.12"
 tracing = "0.1"
+# 日志文件的流式解码（GBK/GB18030、UTF-16、Shift_JIS 等中文/日语日志常见编码）。
+# 与 LogLens 同一份实现（WHATWG Encoding 标准），纯 Rust、无 C 依赖，版本为 tauri 传递依赖的同一版本。
+encoding_rs = "0.8"
 # 端口表枚举（IpHelper）、进程信息（ToolHelp/Threading）、KILL_ON_JOB_CLOSE 作业对象。
 # 版本与 tauri 传递依赖一致，不会多编译一份。
 windows = { version = "0.61", features = [

@@ -22,6 +22,7 @@ import { setWindowTheme } from "@/lib/shell";
 import {
   DEFAULT_SETTINGS,
   asLanguage,
+  asLogSource,
   asTheme,
   blankService,
   type EnvView,
@@ -547,6 +548,7 @@ export default function App() {
                         command: view.command ?? null,
                         cwd: view.cwd ?? null,
                         health: { ...view.health },
+                        logSource: asLogSource(view.logSource),
                       },
                     })
                   }

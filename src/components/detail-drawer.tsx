@@ -11,7 +11,7 @@ import { formatClock, formatDateTime, formatLatency, formatUptime } from "@/form
 import { api } from "@/lib/api";
 import { useT } from "@/lib/i18n-react";
 import { cn } from "@/lib/utils";
-import type { ServiceView } from "@/types";
+import { asLogSource, type LogSourceType, type ServiceView } from "@/types";
 
 const LOG_LIMIT = 300;
 const LOG_POLL_MS = 1000;
@@ -97,6 +97,14 @@ export function DetailDrawer({
     await onClearLogs(id);
   };
 
+  const logSource = asLogSource(service?.logSource);
+  const logPath = (logSource.path ?? "").trim();
+  const logPathMissing = logSource.type === "file" && !logPath;
+  const logSourceLabel =
+    logSource.type === "file" && logPath
+      ? t("drawer.logSourceFile", { path: logPath })
+      : t(logSourceLabelKey(logSource.type));
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
@@ -174,6 +182,25 @@ export function DetailDrawer({
               </TabsContent>
 
               <TabsContent value="logs" className="flex min-h-0 flex-1 flex-col gap-2 p-3">
+                <div
+                  className="flex shrink-0 flex-col gap-0.5 rounded-md border border-border bg-muted/20 px-2 py-1.5 text-[11px]"
+                  title={t("drawer.logSourceHint")}
+                >
+                  <span className="text-muted-foreground">
+                    {t("drawer.logSource")}:{" "}
+                    <span
+                      className={logSource.type === "file" ? "font-mono text-foreground" : "text-foreground"}
+                      title={logSourceLabel}
+                    >
+                      {logSourceLabel}
+                    </span>
+                  </span>
+                  {logPathMissing ? (
+                    <span className="text-amber-700 dark:text-amber-300">
+                      {t("drawer.logSourceFileMissing")}
+                    </span>
+                  ) : null}
+                </div>
                 <div className="flex shrink-0 items-center gap-2">
                   <div className="flex items-center gap-2">
                     <Switch id="drawer-follow" checked={follow} onCheckedChange={setFollow} />
@@ -223,6 +250,13 @@ export function DetailDrawer({
                   <Row label={t("table.interval")} value={`${service.health.intervalMs} ms`} mono />
                   <Row label={t("table.timeout")} value={`${service.health.timeoutMs} ms`} mono />
                   <Row label={t("table.threshold")} value={String(service.health.failureThreshold)} mono />
+                  <Row label={t("drawer.logSource")} value={t(logSourceLabelKey(logSource.type))} />
+                  {logSource.type === "file" ? (
+                    <Row label={t("service.logPath")} value={logPath || "—"} mono />
+                  ) : null}
+                  {logSource.type === "file" ? (
+                    <Row label={t("service.logEncoding")} value={logSource.encoding ?? "utf-8"} mono />
+                  ) : null}
                 </dl>
               </TabsContent>
             </Tabs>
@@ -239,6 +273,12 @@ function probeLabelKey(type: string) {
     | "probe.http"
     | "probe.exec"
     | "probe.none";
+}
+
+function logSourceLabelKey(type: LogSourceType) {
+  return (type === "file" ? "logSource.file" : "logSource.process") as
+    | "logSource.file"
+    | "logSource.process";
 }
 
 function Row({

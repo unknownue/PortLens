@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
-import { TriangleAlert } from "lucide-react";
+import { FolderOpen, TriangleAlert } from "lucide-react";
+// Aliased: the component prop `open` shadows a plain `open` import.
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
 
 import { Field } from "@/components/field";
 import { Button } from "@/components/ui/button";
@@ -15,7 +17,17 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useT } from "@/lib/i18n-react";
 import { isPortRisky, type PortEnv } from "@/status";
-import { PROBE_TYPES, type ProbeType, type ServiceDef } from "@/types";
+import {
+  LOG_ENCODINGS,
+  LOG_SOURCE_TYPES,
+  PROBE_TYPES,
+  asLogEncoding,
+  asLogSource,
+  type LogEncoding,
+  type LogSourceType,
+  type ProbeType,
+  type ServiceDef,
+} from "@/types";
 
 const MIN_INTERVAL_MS = 200;
 const MIN_TIMEOUT_MS = 1;
@@ -48,6 +60,11 @@ export function ServiceDialog({ open, mode, initial, env, onOpenChange, onSubmit
   const [intervalMs, setIntervalMs] = useState(String(initial.health.intervalMs));
   const [timeoutMs, setTimeoutMs] = useState(String(initial.health.timeoutMs));
   const [threshold, setThreshold] = useState(String(initial.health.failureThreshold));
+  const [logType, setLogType] = useState<LogSourceType>(asLogSource(initial.logSource).type);
+  const [logPath, setLogPath] = useState(initial.logSource?.path ?? "");
+  const [logEncoding, setLogEncoding] = useState<LogEncoding>(
+    asLogEncoding(initial.logSource?.encoding),
+  );
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
 
@@ -67,11 +84,31 @@ export function ServiceDialog({ open, mode, initial, env, onOpenChange, onSubmit
     setIntervalMs(String(initial.health.intervalMs));
     setTimeoutMs(String(initial.health.timeoutMs));
     setThreshold(String(initial.health.failureThreshold));
+    setLogType(asLogSource(initial.logSource).type);
+    setLogPath(initial.logSource?.path ?? "");
+    setLogEncoding(asLogEncoding(initial.logSource?.encoding));
     setErrors({});
   }, [open, initial]);
 
   const portNumber = Number.parseInt(port, 10);
   const risky = isPortRisky(portNumber, env);
+
+  const browseLogPath = async () => {
+    const current = logPath.trim();
+    // A wildcard pattern is not a valid `defaultPath` for the system dialog.
+    const seed = current && !/[*?]/.test(current) ? current : undefined;
+    try {
+      const picked = await openDialog({
+        multiple: false,
+        directory: false,
+        title: t("service.logPath"),
+        defaultPath: seed,
+      });
+      if (typeof picked === "string" && picked.trim()) setLogPath(picked);
+    } catch {
+      // Native dialog unavailable: keep whatever the user typed.
+    }
+  };
 
   const submit = async () => {
     const found: Record<string, string> = {};
@@ -94,6 +131,7 @@ export function ServiceDialog({ open, mode, initial, env, onOpenChange, onSubmit
     }
     if (probe === "http" && !path.trim()) found.path = t("service.pathRequired");
     if (probe === "exec" && !probeCommand.trim()) found.command = t("service.commandRequired");
+    if (logType === "file" && !logPath.trim()) found.logPath = t("service.logPathRequired");
 
     setErrors(found);
     if (Object.keys(found).length > 0) return;
@@ -112,6 +150,10 @@ export function ServiceDialog({ open, mode, initial, env, onOpenChange, onSubmit
         timeoutMs: timeoutValue,
         failureThreshold: thresholdValue,
       },
+      logSource:
+        logType === "file"
+          ? { type: "file", path: logPath.trim(), encoding: logEncoding }
+          : { type: "process", path: null, encoding: null },
     };
 
     setBusy(true);
@@ -216,6 +258,75 @@ export function ServiceDialog({ open, mode, initial, env, onOpenChange, onSubmit
           ) : (
             <div className="hidden" />
           )}
+
+          <Field
+            label={t("service.logSource")}
+            hint={t("service.logSourceHint")}
+            className={logType === "file" ? undefined : "col-span-2"}
+          >
+            <Select value={logType} onValueChange={(value) => setLogType(value as LogSourceType)}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {LOG_SOURCE_TYPES.map((item) => (
+                  <SelectItem key={item} value={item}>
+                    {t(`logSource.${item}`)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
+
+          {logType === "file" ? (
+            <Field
+              label={t("service.logEncoding")}
+              htmlFor="service-log-encoding"
+              hint={t("service.logEncodingHint")}
+            >
+              <Select value={logEncoding} onValueChange={(value) => setLogEncoding(value as LogEncoding)}>
+                <SelectTrigger id="service-log-encoding">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {LOG_ENCODINGS.map((item) => (
+                    <SelectItem key={item} value={item}>
+                      {item}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+          ) : null}
+
+          {logType === "file" ? (
+            <Field
+              label={t("service.logPath")}
+              htmlFor="service-log-path"
+              error={errors.logPath}
+              className="col-span-2"
+            >
+              <div className="flex items-center gap-2">
+                <Input
+                  id="service-log-path"
+                  className="flex-1"
+                  value={logPath}
+                  placeholder={t("service.logPathPlaceholder")}
+                  spellCheck={false}
+                  onChange={(event) => setLogPath(event.target.value)}
+                />
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="shrink-0"
+                  onClick={() => void browseLogPath()}
+                >
+                  <FolderOpen />
+                  {t("service.logPathBrowse")}
+                </Button>
+              </div>
+            </Field>
+          ) : null}
 
           <Field label={t("service.intervalMs")} htmlFor="service-interval" error={errors.interval}>
             <Input

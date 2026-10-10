@@ -3,7 +3,7 @@
 use std::net::TcpListener;
 use std::time::{Duration, Instant};
 
-use portlens_lib::config::{HealthConfig, ServiceDef};
+use portlens_lib::config::{HealthConfig, LogSource, ServiceDef};
 use portlens_lib::logs::LogStore;
 use portlens_lib::ports;
 use portlens_lib::proc;
@@ -59,6 +59,7 @@ fn start_and_stop_a_real_node_listener() {
         command: Some(command.clone()),
         cwd: None,
         health: HealthConfig::default(),
+        log_source: LogSource::default(),
     };
 
     let logs = LogStore::new();
@@ -115,6 +116,7 @@ fn start_refuses_when_port_is_taken() {
         command: Some("cmd /C exit 0".into()),
         cwd: None,
         health: HealthConfig::default(),
+        log_source: LogSource::default(),
     };
 
     let mut manager = ServiceManager::new(LogStore::new());

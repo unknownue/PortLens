@@ -30,6 +30,46 @@ export function isProbeType(value: string): value is ProbeType {
   return (PROBE_TYPES as readonly string[]).includes(value);
 }
 
+export type LogSourceType = "process" | "file";
+
+export const LOG_SOURCE_TYPES: readonly LogSourceType[] = ["process", "file"];
+
+export function isLogSourceType(value: string): value is LogSourceType {
+  return (LOG_SOURCE_TYPES as readonly string[]).includes(value);
+}
+
+export type LogEncoding =
+  | "utf-8"
+  | "gbk"
+  | "gb18030"
+  | "utf-16le"
+  | "utf-16be"
+  | "shift_jis"
+  | "big5";
+
+export const LOG_ENCODINGS: readonly LogEncoding[] = [
+  "utf-8",
+  "gbk",
+  "gb18030",
+  "utf-16le",
+  "utf-16be",
+  "shift_jis",
+  "big5",
+];
+
+export function asLogEncoding(value: string | null | undefined): LogEncoding {
+  return value && (LOG_ENCODINGS as readonly string[]).includes(value)
+    ? (value as LogEncoding)
+    : "utf-8";
+}
+
+/** `process` = stdout/stderr of the process we started; `file` = tail-follow `path`. */
+export type LogSource = {
+  type: LogSourceType;
+  path?: string | null;
+  encoding?: string | null;
+};
+
 export type HealthConfig = {
   type: string;
   path?: string | null;
@@ -46,6 +86,7 @@ export type ServiceDef = {
   command?: string | null;
   cwd?: string | null;
   health: HealthConfig;
+  logSource: LogSource;
 };
 
 export type ServiceStatus = {
@@ -117,9 +158,31 @@ export function defaultHealth(): HealthConfig {
   return { type: "tcp", path: null, command: null, intervalMs: 2000, timeoutMs: 1000, failureThreshold: 2 };
 }
 
+export function defaultLogSource(): LogSource {
+  return { type: "process", path: null, encoding: null };
+}
+
+/** Manifests written before v0.2 have no `logSource`; fall back to the default. */
+export function asLogSource(value: Partial<LogSource> | null | undefined): LogSource {
+  if (!value) return defaultLogSource();
+  return {
+    type: isLogSourceType(value.type ?? "") ? (value.type as LogSourceType) : "process",
+    path: value.path ?? null,
+    encoding: value.encoding ?? null,
+  };
+}
+
 /** Blank definition for the "new service" dialog; `id` is derived by the backend. */
 export function blankService(port = 15001): ServiceDef {
-  return { id: "", name: "", port, command: null, cwd: null, health: defaultHealth() };
+  return {
+    id: "",
+    name: "",
+    port,
+    command: null,
+    cwd: null,
+    health: defaultHealth(),
+    logSource: defaultLogSource(),
+  };
 }
 
 export function asLanguage(value: string | null | undefined): Language {

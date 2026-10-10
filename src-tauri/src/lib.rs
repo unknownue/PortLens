@@ -12,6 +12,7 @@ pub mod probe;
 pub mod proc;
 pub mod state;
 pub mod supervise;
+pub mod tail;
 pub mod window_state;
 
 use std::sync::Arc;
