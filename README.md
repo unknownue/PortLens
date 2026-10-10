@@ -36,6 +36,20 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\scan-service.ps1 -Path
 Get-Content -Raw services.json | Test-Json -SchemaFile docs\services.schema.json
 ```
 
+## 图标
+
+应用图标是「**镜头看着一个网口**」：深色圆角底 + 青色放大镜（镜片里是 RJ45 插座，顶上是键槽、下面是三个插槽）+ 右上角绿色状态点（对应 healthy）。标题栏用同一 motif 的 lucide `EthernetPort` 图标。
+
+图标全部由 `gen-icon.cjs` 程序化生成（零依赖：自绘形状 + 4x 超采样、手写 PNG 编码、盒式滤波降采样、PNG 条目 ICO 打包）：
+
+```powershell
+node gen-icon.cjs                 # 重新生成 src-tauri/icons/*
+node gen-icon.cjs <输出目录>       # 生成到别处
+```
+
+产物：`icon-source-1024.png`、`icon.png`、`512x512.png`、`128x128@2x.png`、`128x128.png`、`32x32.png`、`icon.ico`（16/24/32/48/64/128/256）。
+改形状/配色直接改脚本顶部的调色板与几何常量，再跑一次即可。
+
 ## 环境要求
 
 - Windows 10 1809+（WebView2）

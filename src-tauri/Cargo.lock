@@ -2598,7 +2598,7 @@ dependencies = [
 
 [[package]]
 name = "portlens"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "encoding_rs",
  "parking_lot",

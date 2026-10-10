@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Maximize2, Minus, Radar, Square, X } from "lucide-react";
+import { EthernetPort, Maximize2, Minus, Square, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { useT } from "@/lib/i18n-react";
@@ -33,7 +33,7 @@ export function TitleBar() {
       className="flex h-9 shrink-0 items-center justify-between border-b border-border bg-card select-none"
     >
       <div data-tauri-drag-region className="pointer-events-none flex h-full flex-1 items-center gap-2 pl-3">
-        <Radar className="size-3.5 text-primary" />
+        <EthernetPort className="size-3.5 text-primary" />
         <span className="text-xs font-semibold tracking-wide">{t("app.title")}</span>
         <span className="text-[11px] text-muted-foreground">{t("app.tagline")}</span>
       </div>
