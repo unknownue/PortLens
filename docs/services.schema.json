@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/unknownue/PortLens/docs/services.schema.json",
+  "title": "PortLens manifest (services.json)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "services"],
+  "properties": {
+    "version": { "const": 1 },
+    "settings": { "$ref": "#/$defs/settings" },
+    "services": { "type": "array", "items": { "$ref": "#/$defs/service" } }
+  },
+  "$defs": {
+    "settings": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "pollIntervalMs": { "type": "integer", "minimum": 200, "maximum": 10000, "default": 1000 },
+        "language": { "enum": ["zh", "en"], "default": "zh" },
+        "theme": { "enum": ["dark", "light"], "default": "dark" },
+        "stopManagedOnExit": { "type": "boolean", "default": false }
+      }
+    },
+    "health": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": { "enum": ["tcp", "http", "exec", "none"], "default": "tcp" },
+        "path": { "type": ["string", "null"], "description": "http probe path, required when type = http" },
+        "command": { "type": ["string", "null"], "description": "exec probe command, required when type = exec (exit code 0 = healthy)" },
+        "intervalMs": { "type": "integer", "minimum": 200, "default": 2000 },
+        "timeoutMs": { "type": "integer", "minimum": 1, "default": 1000 },
+        "failureThreshold": { "type": "integer", "minimum": 1, "default": 2 }
+      }
+    },
+    "logSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": { "enum": ["process", "file"], "default": "process", "description": "process = stdout/stderr of a service PortLens started; file = tail-follow path" },
+        "path": { "type": ["string", "null"], "description": "required when type = file; supports * and ? (newest match wins)" },
+        "encoding": { "enum": ["utf-8", "gbk", "gb18030", "utf-16le", "utf-16be", "shift_jis", "big5", null], "default": "utf-8" }
+      }
+    },
+    "service": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "port"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "pattern": "^[^\\s]+$" },
+        "name": { "type": "string", "minLength": 1 },
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "command": { "type": ["string", "null"], "description": "run through cmd /C; null or empty = monitor only" },
+        "cwd": { "type": ["string", "null"] },
+        "health": { "$ref": "#/$defs/health" },
+        "logSource": { "$ref": "#/$defs/logSource" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "health": { "properties": { "type": { "const": "http" } }, "required": ["type"] } }, "required": ["health"] },
+          "then": { "properties": { "health": { "required": ["path"], "properties": { "path": { "type": "string", "minLength": 1 } } } } }
+        },
+        {
+          "if": { "properties": { "health": { "properties": { "type": { "const": "exec" } }, "required": ["type"] } }, "required": ["health"] },
+          "then": { "properties": { "health": { "required": ["command"], "properties": { "command": { "type": "string", "minLength": 1 } } } } }
+        },
+        {
+          "if": { "properties": { "logSource": { "properties": { "type": { "const": "file" } }, "required": ["type"] } }, "required": ["logSource"] },
+          "then": { "properties": { "logSource": { "required": ["path"], "properties": { "path": { "type": "string", "minLength": 1 } } } } }
+        }
+      ]
+    }
+  }
+}

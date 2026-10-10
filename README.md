@@ -20,6 +20,22 @@ Tauri 2（Rust 后端 + WebView2 前端）+ React 19 + shadcn/ui（Tailwind v4�
 
 （导入 `presets/workspace-gm10.json` 后的仪表盘：健康 / 降级 / 端口冲突 / 已停止 四种状态，底部是外部占用计数。）
 
+## 接入一个新服务（agent 执行）
+
+用户只需给一个**基本路径**，其余由 agent 按 [docs/onboarding.md](docs/onboarding.md) 挖出来：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\scan-service.ps1 -Path <服务目录> -Json
+```
+
+扫描器只读（不写文件、不启动进程），产出：端口候选（按源码命中数排序，带 `file:line`）、启动命令候选（p1 `package.json` → p4 README）、健康检查路径候选、日志文件候选、端口风险，以及一份可直接填的 `draft` 和「必须由人确认」的 `openQuestions`。
+
+清单写完后用 [docs/services.schema.json](docs/services.schema.json) 校验：
+
+```powershell
+Get-Content -Raw services.json | Test-Json -SchemaFile docs\services.schema.json
+```
+
 ## 环境要求
 
 - Windows 10 1809+（WebView2）

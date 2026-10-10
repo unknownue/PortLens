@@ -1,5 +1,8 @@
 # 清单格式（services.json）
 
+> 要让 agent 帮你接入一个新服务（用户只给一个基本路径），看 [onboarding.md](onboarding.md)：
+> 挖取流程 + 字段决策表 + 验证门禁，配 `tools/scan-service.ps1`（只读扫描器）与 `services.schema.json`。
+
 清单是 PortLens 的唯一真源：哪些端口要看、每个端口怎么启动、怎么判健康。
 
 路径解析顺序：
