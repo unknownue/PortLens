@@ -11,9 +11,10 @@
       "id": "dsh-web-15080",
       "name": "dsh web (GUI)",
       "port": 15080,
-      "command": null,
+      "command": "bash scripts/restart_dsh.sh",
       "cwd": "E:\\Workspace",
-      "health": { "type": "tcp", "intervalMs": 3000, "timeoutMs": 1000, "failureThreshold": 2 }
+      "health": { "type": "tcp", "intervalMs": 3000, "timeoutMs": 1000, "failureThreshold": 2 },
+      "logSource": { "type": "file", "path": "C:\\Users\\duzihui\\.dsh-web.out.log", "encoding": "utf-8" }
     },
     {
       "id": "codemaker-hub-15721",

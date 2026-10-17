@@ -161,13 +161,18 @@ impl HealthMachine {
 
     /// 判定顺序（first match wins，契约第 2 节 1..7 条）。
     fn decide(&self, tick: &Tick) -> (State, String) {
-        // 1. 托管进程已退出且有退出码。
-        if tick.managed && !tick.alive && tick.exit_code.is_some() {
+        // 1. 托管进程非 0 退出且端口没在听 —— 真崩了。
+        //    退出码为 0 的命令是「启动器」（`start /b`、`Start-Process`、`bash restart_xx.sh` 之类）：
+        //    它把服务交给别的进程后自己退出，端口随后才起来，不能当崩溃。
+        let failed_exit = matches!(tick.exit_code, Some(code) if code != 0);
+        if tick.managed && !tick.alive && failed_exit && !tick.listening {
             let code = tick.exit_code.unwrap_or(-1);
             return (State::Crashed, format!("进程退出（代码 {code}）"));
         }
-        // 2. 端口在监听，但不是我们拉起的进程。
-        if tick.listening && tick.managed && !tick.owner_is_ours {
+        // 2. 我们记录的进程还活着，端口却被别的进程占了 -> 冲突。
+        //    没有记录进程（从未由本工具启动/认领）时端口在听 = 服务在外面跑着，按探针判健康，
+        //    不当冲突：`make restart-dsh` 起的服务被 PortLens 接管监控就是这种情形。
+        if tick.listening && tick.managed && !tick.owner_is_ours && tick.alive {
             return (State::Conflict, "端口被其它进程占用".to_string());
         }
         // 3. 在监听，且本拍有探针结果。
@@ -203,6 +208,10 @@ impl HealthMachine {
         // 5. 托管进程活着但还没监听。
         if tick.managed && tick.alive {
             return (State::Starting, "已启动，等待监听".to_string());
+        }
+        // 5b. 启动器式命令：它以 0 退出（服务交给别的进程），端口还没起来 —— 仍在启动中。
+        if tick.managed && !tick.alive && tick.exit_code == Some(0) {
+            return (State::Starting, "启动命令已执行（代码 0），等待端口监听".to_string());
         }
         // 6. 非托管且没在监听（走到这里 listening 一定为 false）。
         if !tick.managed {
@@ -420,10 +429,58 @@ mod tests {
         assert!(!machine.on_tick(live_tick(), 2_000));
         assert_eq!(machine.status().since_ms, 1_000);
 
-        let crash = Tick { alive: false, exit_code: Some(1), ..live_tick() };
+        let crash = Tick { alive: false, exit_code: Some(1), listening: false, ..live_tick() };
         assert!(machine.on_tick(crash, 3_000));
         assert_eq!(machine.status().state, State::Crashed);
         assert_eq!(machine.status().since_ms, 3_000);
+    }
+
+    #[test]
+    fn managed_service_running_outside_is_not_a_conflict() {
+        // Never tracked a pid (started by `make restart-dsh`, not by PortLens): the port owner is
+        // someone else but nothing of ours is running, so the probe decides the state.
+        let outside = Tick {
+            listening: true,
+            owner_is_ours: false,
+            managed: true,
+            alive: false,
+            exit_code: None,
+            probe: Some(probe(true)),
+        };
+        let mut machine = HealthMachine::new("dsh-web");
+        machine.on_tick(outside, 1_000);
+        assert_eq!(machine.status().state, State::Healthy);
+        assert!(machine.status().pid.is_none());
+    }
+
+    #[test]
+    fn launcher_style_command_is_not_a_crash() {
+        let mut machine = HealthMachine::new("dsh-web");
+        // `bash restart_dsh.sh` starts the service detached and exits 0 while the port is not
+        // listening yet: that is "starting", not "crashed".
+        let launcher = Tick {
+            listening: false,
+            owner_is_ours: false,
+            managed: true,
+            alive: false,
+            exit_code: Some(0),
+            probe: None,
+        };
+        machine.on_tick(launcher, 1_000);
+        assert_eq!(machine.status().state, State::Starting);
+        assert!(machine.status().detail.contains("启动命令已执行"), "{}", machine.status().detail);
+
+        // The port comes up afterwards (served by the detached child) -> healthy.
+        let up = Tick { listening: true, owner_is_ours: true, managed: true, alive: false, exit_code: Some(0), probe: Some(probe(true)) };
+        machine.on_tick(up, 2_000);
+        assert_eq!(machine.status().state, State::Healthy);
+
+        // A non-zero exit with the port still served by someone else is not a crash either: the
+        // service answers, the listener view tells who owns it.
+        let mut other = HealthMachine::new("svc");
+        let foreign = Tick { listening: true, owner_is_ours: false, managed: true, alive: false, exit_code: Some(2), probe: None };
+        other.on_tick(foreign, 1_000);
+        assert_eq!(other.status().state, State::Healthy);
     }
 
     #[test]

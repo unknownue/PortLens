@@ -92,12 +92,17 @@ impl HealthMachine {
     pub fn set_pid(&mut self, pid: Option<u32>);
 }
 ```
-判定顺序（first match wins）：
-1. `managed && !alive && exit_code.is_some()` → `Crashed`（detail 带退出码；记录 exit_code）
-2. `listening && managed && !owner_is_ours` → `Conflict`（端口被外部进程占用）
+判定顺序（first match wins，v0.4.2 起按「启动器式命令」与「外部已运行」修正）：
+1. `managed && !alive && exit_code` 非 0 **且** `!listening` → `Crashed`（detail 带退出码；记录 exit_code）
+   —— 退出码 0 的命令视为**启动器**（`Start-Process` / `start /b` / `bash restart_xx.sh`）：它把服务交给
+   别的进程后自己退出，不能当崩溃。
+2. `listening && managed && !owner_is_ours && alive` → `Conflict`（我们记录的进程还在，端口被别的进程抢了）
+   —— 没有记录进程时端口在听 = 服务在外面跑（例如 `make restart-dsh` 起的），按探针判 `Healthy`/`Degraded`，
+   不当冲突。
 3. `listening && probe.is_some()` → 探针 ok 连续成功 → `Healthy`；连续失败 ≥ `failure_threshold` → `Degraded`
 4. `listening && probe.is_none()` → 保持当前状态（若当前是 Stopped/Starting 则 `Healthy`，detail 说明“仅监听事实”）
 5. `managed && alive && !listening` → `Starting`
+5b. `managed && !alive && exit_code == 0 && !listening` → `Starting`（启动命令已执行，等待端口监听）
 6. `!managed && !listening` → `Stopped`
 7. 其它 → `Unknown`
 另：`probe` 为 Some 时把结果压进 `history`（上限 120，true=ok）；`since_ms` 只在状态变化时更新；`uptime_ms` 仅在 `Healthy` 时为 `now_ms - since_ms`，否则 0；`latency_ms` 取最近一次探针耗时。

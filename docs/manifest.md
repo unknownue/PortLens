@@ -49,7 +49,7 @@
 | `id` | 唯一标识；留空时由名称 + 端口自动生成 slug |
 | `name` | 显示名 |
 | `port` | 主端口（一个服务一个端口；多端口服务声明成多条） |
-| `command` | 启动命令，经 `cmd /C` 执行；`null` 或空 = **仅监控**（不负责拉起） |
+| `command` | 启动命令，经 `cmd /C` 执行；`null` 或空 = **仅监控**（不负责拉起）。可以是「启动器」式命令，见下 |
 | `cwd` | 启动命令的工作目录；空则用本工具进程的当前目录 |
 | `health.type` | `tcp` / `http` / `exec` / `none` |
 | `health.path` | `http` 探针的路径，如 `/status` |
@@ -92,6 +92,35 @@
 
 `settings.stopManagedOnExit`：退出应用时是否停止由本工具启动的服务（默认 false，即保持运行）。
 `settings.pollIntervalMs`：监听表与状态的轮询间隔，默认 1000。
+
+## 启动器式命令（自己退出、服务交给别的进程）
+
+很多服务的启动入口是个**启动器**：`bash scripts/restart_dsh.sh`、`start /b ...`、`Start-Process ...`。
+它把真正的服务交给别的进程后自己以 0 退出，端口过一会儿才被监听。状态机按这么判：
+
+| 事实 | 状态 |
+|---|---|
+| 命令非 0 退出 **且**端口没在听 | `crashed`（进程退出，代码 N） |
+| 命令以 0 退出 **且**端口还没在听 | `starting`（启动命令已执行，等待端口监听） |
+| 命令已退出但端口在听（真正监听的是它拉起的后代进程） | 按监听与探针判：`healthy` / `degraded`；被别人占用则是 `conflict` |
+
+停止仍然是统一的进程树停止：先 `taskkill /PID <记录的 pid> /T`，记录里的进程不在了就退回到**端口占用者**（`GetExtendedTcpTable` 拿到的 PID）再杀，最后校验端口释放 —— 所以启动器式命令同样能停掉。
+
+清单里的真实例子（本工作区的 dsh web）：
+
+```json
+{
+  "id": "dsh-web-15080",
+  "name": "dsh web (GUI)",
+  "port": 15080,
+  "command": "bash scripts/restart_dsh.sh",
+  "cwd": "E:\\Workspace",
+  "health": { "type": "tcp", "intervalMs": 3000, "timeoutMs": 1000, "failureThreshold": 2 },
+  "logSource": { "type": "file", "path": "C:\\Users\\duzihui\\.dsh-web.out.log", "encoding": "utf-8" }
+}
+```
+
+`scripts/restart_dsh.sh` 自己会：杀掉端口占用者、从 `.credentials.yaml` 取并续期 `CODEMAKER_ACCESS_TOKEN`、导出 `DSH_PERMISSION_MODE`、清理陈旧 profile 写锁、用 `Start-Process` 脱离启动 `dsh.cmd web --no-open --port 15080`（stdout/stderr 落 `~/.dsh-web.out.log` / `.err.log`）、并从日志里捞出带 token 的鉴权 URL —— 那串 URL 就在日志标签里（`logSource` 指到 `.dsh-web.out.log`）。`dsh web` 的 `/` 需要 token，所以探针用 `tcp`。
 
 ## 日志来源（外部服务为什么需要它）
 
